@@ -90,6 +90,7 @@ class SerialProxy():
         self.error_counts = {'non_fatal': 0, 'checksum': 0, 'dropped': 0}
         self.current_state = MotorStateList()
         self.num_ping_retries = 5
+        # Since we got 5 retries here, be smart on the initial pinging
         
         self.motor_states_pub = rospy.Publisher('motor_states/%s' % self.port_namespace, MotorStateList, queue_size=1)
         self.diagnostics_pub = rospy.Publisher('/diagnostics', DiagnosticArray, queue_size=1)
@@ -163,6 +164,9 @@ class SerialProxy():
             for trial in range(self.num_ping_retries):
                 try:
                     result = self.dxl_io.ping(motor_id)
+                    # Add a delay here before sending the next signal or it may corrupt the UART channel
+                    rospy.sleep(0.2)
+
                 except Exception as ex:
                     rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
                     continue
@@ -183,8 +187,11 @@ class SerialProxy():
                 try:
                     model_number = self.dxl_io.get_model_number(motor_id)
                     self.__fill_motor_parameters(motor_id, model_number)
+                    # Another delay here for safety measures as well
+                    rospy.sleep(0.2)
                 except Exception as ex:
                     rospy.logerr('Exception thrown while getting attributes for motor %d - %s' % (motor_id, ex))
+                    # Hmm motor is deleted if it got too many exception thrown (5 for this case)
                     if trial == self.num_ping_retries - 1: to_delete_if_error.append(motor_id)
                     continue
                     
