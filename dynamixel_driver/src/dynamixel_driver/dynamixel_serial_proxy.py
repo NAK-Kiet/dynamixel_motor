@@ -56,6 +56,9 @@ import rospy
 import dynamixel_io
 from dynamixel_driver.dynamixel_const import *
 
+# Standard boolean message to report init state
+from std_msgs.msg import Bool
+
 from diagnostic_msgs.msg import DiagnosticArray
 from diagnostic_msgs.msg import DiagnosticStatus
 from diagnostic_msgs.msg import KeyValue
@@ -90,11 +93,15 @@ class SerialProxy():
         self.error_counts = {'non_fatal': 0, 'checksum': 0, 'dropped': 0}
         self.current_state = MotorStateList()
         self.num_ping_retries = 5
-        # Since we got 5 retries here, be smart on the initial pinging
+        # Not sure why the author put this in here, it messed up a lot of stuff along the line,
+        # as the user is supposed to state the min/max motors already
         
         self.motor_states_pub = rospy.Publisher('motor_states/%s' % self.port_namespace, MotorStateList, queue_size=1)
         self.diagnostics_pub = rospy.Publisher('/diagnostics', DiagnosticArray, queue_size=1)
 
+        # Publisher to declare whether all motors communication has been established
+        self.done_init_pub = rospy.Publisher('/done_init', Bool, queue_size = 1)
+        
     def connect(self):
         try:
             self.dxl_io = dynamixel_io.DynamixelIO(self.port_name, self.baud_rate, self.readback_echo)
@@ -161,17 +168,21 @@ class SerialProxy():
         self.motor_static_info = {}
         
         for motor_id in range(self.min_motor_id, self.max_motor_id + 1):
-            for trial in range(self.num_ping_retries):
+            while(True):
                 try:
                     result = self.dxl_io.ping(motor_id)
-                    # Add a delay here before sending the next signal or it may corrupt the UART channel
-                    rospy.sleep(0.2)
+                    rospy.loginfo("Pinging motor %i", motor_id)
 
                 except Exception as ex:
                     rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
-                    continue
                     
+                    # Now that we have encountered an error, wait a bit for the UART channel to clear out
+                    rospy.sleep(0.1)
+                    continue
+                
+
                 if result:
+                    rospy.loginfo("Got ping from motor %i!!!", motor_id)
                     self.motors.append(motor_id)
                     break
                     
@@ -183,24 +194,23 @@ class SerialProxy():
         
         to_delete_if_error = []
         for motor_id in self.motors:
-            for trial in range(self.num_ping_retries):
+            while(True):
                 try:
                     model_number = self.dxl_io.get_model_number(motor_id)
                     self.__fill_motor_parameters(motor_id, model_number)
-                    # Another delay here for safety measures as well
-                    rospy.sleep(0.2)
+                    rospy.loginfo("Getting model number for motor %i", motor_id)
                 except Exception as ex:
                     rospy.logerr('Exception thrown while getting attributes for motor %d - %s' % (motor_id, ex))
-                    # Hmm motor is deleted if it got too many exception thrown (5 for this case)
-                    if trial == self.num_ping_retries - 1: to_delete_if_error.append(motor_id)
+
+                    # Now that we have encountered an error, wait a bit for the UART channel to clear out
+                    rospy.sleep(0.5)
                     continue
+            
                     
+                rospy.loginfo("The model of motor %i is %s", motor_id, DXL_MODEL_TO_PARAMS[model_number]['name'])
                 counts[model_number] += 1
                 break
                 
-        for motor_id in to_delete_if_error:
-            self.motors.remove(motor_id)
-            
         rospy.set_param('dynamixel/%s/connected_ids' % self.port_namespace, self.motors)
         
         status_str = '%s: Found %d motors - ' % (self.port_namespace, len(self.motors))
@@ -216,6 +226,9 @@ class SerialProxy():
                 status_str = status_str[:-2] + '], '
                 
         rospy.loginfo('%s, initialization complete.' % status_str[:-2])
+
+        # TODO: publish to a topic to alert the controllers have all started successfully 
+        # (within controller_manager.py under the dynamixel_controllers package)
 
     def __update_motor_states(self):
         num_events = 50
