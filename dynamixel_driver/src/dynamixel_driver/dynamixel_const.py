@@ -283,5 +283,16 @@ DXL_MODEL_TO_PARAMS = \
            'rpm_per_tick':       0.114,
            'features':           [DXL_CURRENT_L, DXL_TORQUE_CONTROL_MODE, DXL_GOAL_ACCELERATION]
          },
+
+    # Our forgotten brother motor, the XL-320, reference from this website
+    # http://support.robotis.com/en/product/actuator/dynamixel_x/xl_series/xl-320.htm
+    350: { 'name':               'XL-320',
+           'encoder_resolution': 1024,
+           'range_degrees':      300.0,
+           'torque_per_volt':    0.39 / 7.4,                       #  0.39 Nm @ 7.4V
+           'velocity_per_volt':  (114 * RPM_TO_RADSEC) / 7.4,      # 114 RPM @ 7.4V
+           'rpm_per_tick':       0.111,
+           'features':           [],
+         },
 }
 
