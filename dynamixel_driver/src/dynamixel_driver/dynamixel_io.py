@@ -213,23 +213,42 @@ class DynamixelIO(object):
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-    def ping(self, servo_id):
+    def ping(self, servo_id, protocol=2.0):
         """ Ping the servo with "servo_id". This causes the servo to return a
         "status packet". This can tell us if the servo is attached and powered,
         and if so, if there are any errors.
         """
-        # Number of bytes following standard header (0xFF, 0xFF, id, length)
-        length = 2  # instruction, checksum
 
-        # directly from AX-12 manual:
-        # Check Sum = ~ (ID + LENGTH + INSTRUCTION + PARAM_1 + ... + PARAM_N)
-        # If the calculated value is > 255, the lower byte is the check sum.
-        checksum = 255 - ((servo_id + length + DXL_PING) % 256)
+        # Below is the packet prepared for protocol 1.0
+        if (protocol == 1.0):
+            # Number of bytes following standard header (0xFF, 0xFF, id, length)
+            length = 2  # instruction, checksum
 
-        # packet: FF  FF  ID LENGTH INSTRUCTION CHECKSUM
-        packet = [0xFF, 0xFF, servo_id, length, DXL_PING, checksum]
-        packetStr = array('B', packet).tostring()
-        print("Packet sent to motor", servo_id, packetStr)
+            # directly from AX-12 manual:
+            # Check Sum = ~ (ID + LENGTH + INSTRUCTION + PARAM_1 + ... + PARAM_N)
+            # If the calculated value is > 255, the lower byte is the check sum.
+            checksum = 255 - ((servo_id + length + DXL_PING) % 256)
+
+            # packet: FF  FF  ID LENGTH INSTRUCTION CHECKSUM
+            packet = [0xFF, 0xFF, servo_id, length, DXL_PING, checksum]
+            packetStr = array('B', packet).tostring()
+
+        # Then this is protol 2.0, refer to this website 
+        # http://support.robotis.com/en/product/actuator/dynamixel_pro/communication/instruction_status_packet.htm
+        # packet: (0xFF 0XFF 0XFD) (0X00) (ID) (LEN_L LEN_H) (Instruction) (Param1...ParamN) (CRC_L CRC_H)
+        elif (protocol == 2.0):
+            # Param + 3, but param = 0 for ping, thus self-explainatory
+            length = 3
+            
+            # Checksum for this is like rocket science... gonna use the example one for now
+            checksum = 0x4E19
+
+            # Build the packet here
+            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, (length & 0xFF), ((length >> 8) & 0xFF), DXL_PING, (checksum & 0xFF), ((checksum >> 8) & 0xFF)]
+            packetStr = array('B', packet).tostring()
+
+        # Print out the packet to terminal for debug purpose
+        print("Packet sent to motor", servo_id, packet)
 
         with self.serial_mutex:
             self.__write_serial(packetStr)
@@ -248,7 +267,7 @@ class DynamixelIO(object):
         if response:
             self.exception_on_error(response[4], servo_id, 'ping')
 
-        print("Packet sent to motor", servo_id, response)
+        print("Packet received to motor", servo_id, response)
         return response
 
     def test_bit(self, number, offset):
