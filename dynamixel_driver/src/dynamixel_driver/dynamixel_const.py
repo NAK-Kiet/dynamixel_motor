@@ -284,7 +284,7 @@ DXL_MODEL_TO_PARAMS = \
            'features':           [DXL_CURRENT_L, DXL_TORQUE_CONTROL_MODE, DXL_GOAL_ACCELERATION]
          },
 
-    # Our forgotten brother motor, the XL-320, reference from this website
+    # Our forgotten brother motor, the XL-320, reference from this website, though it uses protocol 2.0
     # http://support.robotis.com/en/product/actuator/dynamixel_x/xl_series/xl-320.htm
     350: { 'name':               'XL-320',
            'encoder_resolution': 1024,

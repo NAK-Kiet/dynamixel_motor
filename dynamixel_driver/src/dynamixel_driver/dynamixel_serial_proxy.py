@@ -166,12 +166,16 @@ class SerialProxy():
         rospy.loginfo('%s: Pinging motor IDs %d through %d...' % (self.port_namespace, self.min_motor_id, self.max_motor_id))
         self.motors = []
         self.motor_static_info = {}
+
+        # Trial counter, in case baud rate is wrongly setup and serial kept on running forever
+        cnt = 0
         
         for motor_id in range(self.min_motor_id, self.max_motor_id + 1):
             while(True):
                 try:
                     result = self.dxl_io.ping(motor_id)
                     rospy.loginfo("Pinging motor %i", motor_id)
+                    cnt += 1
 
                 except Exception as ex:
                     rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
@@ -184,6 +188,11 @@ class SerialProxy():
                 if result:
                     rospy.loginfo("Got ping from motor %i!!!", motor_id)
                     self.motors.append(motor_id)
+                    break
+
+                # Terminate if cannot connect to motor
+                if cnt > 5:
+                    rospy.loginfo("Cannot find motor %i, terminating...", motor_id)
                     break
                     
         if not self.motors:

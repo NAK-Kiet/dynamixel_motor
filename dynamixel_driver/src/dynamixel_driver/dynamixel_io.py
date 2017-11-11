@@ -229,6 +229,7 @@ class DynamixelIO(object):
         # packet: FF  FF  ID LENGTH INSTRUCTION CHECKSUM
         packet = [0xFF, 0xFF, servo_id, length, DXL_PING, checksum]
         packetStr = array('B', packet).tostring()
+        print("Packet sent to motor", servo_id, packetStr)
 
         with self.serial_mutex:
             self.__write_serial(packetStr)
@@ -246,6 +247,8 @@ class DynamixelIO(object):
 
         if response:
             self.exception_on_error(response[4], servo_id, 'ping')
+
+        print("Packet sent to motor", servo_id, response)
         return response
 
     def test_bit(self, number, offset):
