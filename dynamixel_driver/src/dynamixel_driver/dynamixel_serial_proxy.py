@@ -192,6 +192,7 @@ class SerialProxy():
 
                 # Terminate if cannot connect to motor
                 if cnt > 5:
+                    cnt = 0
                     rospy.loginfo("Cannot find motor %i, terminating...", motor_id)
                     break
                     

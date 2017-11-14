@@ -66,6 +66,8 @@ class DynamixelIO(object):
             self.ser = None
             self.ser = serial.Serial(port, baudrate, timeout=0.015)
             self.port_name = port
+            print("Connecting to port", port)
+            print("Current baudrate", baudrate)
             self.readback_echo = readback_echo
         except SerialOpenError:
            raise SerialOpenError(port, baudrate)
@@ -213,7 +215,7 @@ class DynamixelIO(object):
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-    def ping(self, servo_id, protocol=2.0):
+    def ping(self, servo_id, protocol=1.0):
         """ Ping the servo with "servo_id". This causes the servo to return a
         "status packet". This can tell us if the servo is attached and powered,
         and if so, if there are any errors.
@@ -236,7 +238,7 @@ class DynamixelIO(object):
         # Then this is protol 2.0, refer to this website 
         # http://support.robotis.com/en/product/actuator/dynamixel_pro/communication/instruction_status_packet.htm
         # packet: (0xFF 0XFF 0XFD) (0X00) (ID) (LEN_L LEN_H) (Instruction) (Param1...ParamN) (CRC_L CRC_H)
-        elif (protocol == 2.0):
+        if (protocol == 2.0):
             # Param + 3, but param = 0 for ping, thus self-explainatory
             length = 3
             
@@ -244,18 +246,20 @@ class DynamixelIO(object):
             checksum = 0x4E19
 
             # Build the packet here
-            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, (length & 0xFF), ((length >> 8) & 0xFF), DXL_PING, (checksum & 0xFF), ((checksum >> 8) & 0xFF)]
+            # packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, (length & 0xFF), ((length >> 8) & 0xFF), DXL_PING, (checksum & 0xFF), ((checksum >> 8) & 0xFF)]
+            packet = [255, 255, 253, 0, 254, 3, 0, 1, 49, 66]
             packetStr = array('B', packet).tostring()
 
-        # Print out the packet to terminal for debug purpose
-        print("Packet sent to motor", servo_id, packet)
 
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
+            # Print out the packet to terminal for debug purpose
+            print("Packet sent to motor", servo_id, packet)
+
             # wait for response packet from the motor
             timestamp = time.time()
-            time.sleep(0.0013)
+            time.sleep(0.13)
 
             # read response
             try:
