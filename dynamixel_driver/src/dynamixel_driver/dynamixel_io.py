@@ -95,6 +95,7 @@ class DynamixelIO(object):
     def __read_response(self, servo_id):
         data = []
 
+        # TODO: For protocol 2, a helper will be required to read in some little endian
         try:
             data.extend(self.ser.read(4))
             if not data[0:2] == ['\xff', '\xff']: raise Exception('Wrong packet prefix %s' % data[0:2])
@@ -103,9 +104,10 @@ class DynamixelIO(object):
         except Exception, e:
             raise DroppedPacketError('Invalid response received from motor %d. %s' % (servo_id, e))
 
+        # TODO: Create helper for checksum creation/verification
         # verify checksum
-        checksum = 255 - sum(data[2:-1]) % 256
-        if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
+        # checksum = 255 - sum(data[2:-1]) % 256
+        # if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
 
         return data
 
