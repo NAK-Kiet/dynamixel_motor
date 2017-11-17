@@ -85,6 +85,24 @@ class DynamixelIO(object):
             self.ser.flushOutput()
             self.ser.close()
 
+    # Copied from pyxl320 package by Kevin Walchko, using the crazy DXL_CRC_TABLE
+    # https://github.com/MomsFriendlyRobotCompany/pyxl320
+    def __gen_crc16(self, data_blk):
+        """
+        Calculate crc
+
+        in: data_blk - entire packet except last 2 crc bytes
+        out: crc_accum - 16 word
+        """
+        data_blk_size = len(data_blk)
+        crc_accum = 0
+        for j in range(data_blk_size):
+            i = ((crc_accum >> 8) ^ data_blk[j]) & 0xFF
+            crc_accum = ((crc_accum << 8) ^ DXL_CRC_TABLE[i])
+            crc_accum &= 0xffff  # keep to 16 bits
+
+        return crc_accum
+
     def __write_serial(self, data):
         self.ser.flushInput()
         self.ser.flushOutput()
@@ -92,22 +110,41 @@ class DynamixelIO(object):
         if self.readback_echo:
             self.ser.read(len(data))
 
-    def __read_response(self, servo_id):
+    def __read_response(self, servo_id, protocol=2):
         data = []
+        
+        # Obsolete protocol 1.0, keeping it here just in case we need it in the future
+        if (protocol == 1):
+            try:
+                data.extend(self.ser.read(4))
+                if not data[0:2] == ['\xff', '\xff']: raise Exception('Wrong packet prefix %s' % data[0:2])
+                data.extend(self.ser.read(ord(data[3])))
+                data = array('B', ''.join(data)).tolist() # [int(b2a_hex(byte), 16) for byte in data]
+            except Exception, e:
+                raise DroppedPacketError('Invalid response received from motor %d. %s' % (servo_id, e))
+            checksum = 255 - sum(data[2:-1]) % 256
+            if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
 
-        # TODO: For protocol 2, a helper will be required to read in some little endian
-        try:
-            data.extend(self.ser.read(4))
-            if not data[0:2] == ['\xff', '\xff']: raise Exception('Wrong packet prefix %s' % data[0:2])
-            data.extend(self.ser.read(ord(data[3])))
-            data = array('B', ''.join(data)).tolist() # [int(b2a_hex(byte), 16) for byte in data]
-        except Exception, e:
-            raise DroppedPacketError('Invalid response received from motor %d. %s' % (servo_id, e))
+        # Protocol 2.0 to match with the later Dynamixel models
+        elif (protocol == 2):
 
-        # TODO: Create helper for checksum creation/verification
-        # verify checksum
-        # checksum = 255 - sum(data[2:-1]) % 256
-        # if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
+            # Not sure why there's a try exception here but whatever
+            try:
+                # Start with checking the package prefix first
+                data.extend(self.ser.read(7))
+                if data[0:4] != ['\xff', '\xff', '\xfd', '\x00']: raise Exception('Wrong packet prefex %s from motor %d' % (data[0:3], servo_id))
+
+                # Prefix looks good, continue to fetch the rest of our data
+                length = ord(data[5]) + (ord(data[6]) << 8)
+                data.extend(self.ser.read(length))
+                data = array('B', ''.join(data)).tolist() # I assumed this is to convert the packet to a list/array of something?
+
+            except Exception, e:
+                raise DroppedPacketError('Invalid response received from motor %d. %s' % (servo_id, e))
+
+            # Okay looking good so far, let's check the checksum
+            packet_checksum = data[-2] + (data[-1] << 8)
+            if (packet_checksum != self.__gen_crc16(data[:-2])): raise ChecksumError(servo_id, data, packet_checksum)
 
         return data
 
@@ -217,14 +254,14 @@ class DynamixelIO(object):
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-    def ping(self, servo_id, protocol=1.0):
+    def ping(self, servo_id, protocol=2):
         """ Ping the servo with "servo_id". This causes the servo to return a
         "status packet". This can tell us if the servo is attached and powered,
         and if so, if there are any errors.
         """
 
         # Below is the packet prepared for protocol 1.0
-        if (protocol == 1.0):
+        if (protocol == 1):
             # Number of bytes following standard header (0xFF, 0xFF, id, length)
             length = 2  # instruction, checksum
 
@@ -240,18 +277,20 @@ class DynamixelIO(object):
         # Then this is protol 2.0, refer to this website 
         # http://support.robotis.com/en/product/actuator/dynamixel_pro/communication/instruction_status_packet.htm
         # packet: (0xFF 0XFF 0XFD) (0X00) (ID) (LEN_L LEN_H) (Instruction) (Param1...ParamN) (CRC_L CRC_H)
-        if (protocol == 2.0):
+        if (protocol == 2):
             # Param + 3, but param = 0 for ping, thus self-explainatory
             length = 3
             
-            # Checksum for this is like rocket science... gonna use the example one for now
-            checksum = 0x4E19
-
             # Build the packet here
-            # packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, (length & 0xFF), ((length >> 8) & 0xFF), DXL_PING, (checksum & 0xFF), ((checksum >> 8) & 0xFF)]
-            packet = [255, 255, 253, 0, 254, 3, 0, 1, 49, 66]
-            packetStr = array('B', packet).tostring()
+            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, (length & 0xFF), ((length >> 8) & 0xFF), DXL_PING]
 
+            # Calculate the checksum and add it to the final packet
+            checksum = self.__gen_crc16(packet)
+            packet.append(checksum & 0xFF)
+            packet.append((checksum >> 8) & 0xFF)
+
+            # Convert to string
+            packetStr = array('B', packet).tostring()
 
         with self.serial_mutex:
             self.__write_serial(packetStr)
@@ -273,7 +312,7 @@ class DynamixelIO(object):
         if response:
             self.exception_on_error(response[4], servo_id, 'ping')
 
-        print("Packet received to motor", servo_id, response)
+        print("Packet received from motor", servo_id, response)
         return response
 
     def test_bit(self, number, offset):
