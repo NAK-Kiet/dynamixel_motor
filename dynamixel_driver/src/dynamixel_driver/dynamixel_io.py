@@ -110,11 +110,11 @@ class DynamixelIO(object):
         if self.readback_echo:
             self.ser.read(len(data))
 
-    def __read_response(self, servo_id, protocol=2):
+    def __read_response(self, servo_id):
         data = []
         
         # Obsolete protocol 1.0, keeping it here just in case we need it in the future
-        if (protocol == 1):
+        if (DXL_PROTOCOL == 1):
             try:
                 data.extend(self.ser.read(4))
                 if not data[0:2] == ['\xff', '\xff']: raise Exception('Wrong packet prefix %s' % data[0:2])
@@ -126,7 +126,7 @@ class DynamixelIO(object):
             if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
 
         # Protocol 2.0 to match with the later Dynamixel models
-        elif (protocol == 2):
+        elif (DXL_PROTOCOL == 2):
 
             # Not sure why there's a try exception here but whatever
             try:
@@ -157,17 +157,34 @@ class DynamixelIO(object):
         like:
             read(1, DXL_GOAL_POSITION_L, 2)
         """
-        # Number of bytes following standard header (0xFF, 0xFF, id, length)
-        length = 4  # instruction, address, size, checksum
+        # Obsolete protocol 1.0, keeping this here just in case
+        if (DXL_PROTOCOL == 1):
+            # Number of bytes following standard header (0xFF, 0xFF, id, length)
+            length = 4  # instruction, address, size, checksum
 
-        # directly from AX-12 manual:
-        # Check Sum = ~ (ID + LENGTH + INSTRUCTION + PARAM_1 + ... + PARAM_N)
-        # If the calculated value is > 255, the lower byte is the check sum.
-        checksum = 255 - ( (servo_id + length + DXL_READ_DATA + address + size) % 256 )
+            # directly from AX-12 manual:
+            # Check Sum = ~ (ID + LENGTH + INSTRUCTION + PARAM_1 + ... + PARAM_N)
+            # If the calculated value is > 255, the lower byte is the check sum.
+            checksum = 255 - ( (servo_id + length + DXL_READ_DATA + address + size) % 256 )
 
-        # packet: FF  FF  ID LENGTH INSTRUCTION PARAM_1 ... CHECKSUM
-        packet = [0xFF, 0xFF, servo_id, length, DXL_READ_DATA, address, size, checksum]
-        packetStr = array('B', packet).tostring() # same as: packetStr = ''.join([chr(byte) for byte in packet])
+            # packet: FF  FF  ID LENGTH INSTRUCTION PARAM_1 ... CHECKSUM
+            packet = [0xFF, 0xFF, servo_id, length, DXL_READ_DATA, address, size, checksum]
+            packetStr = array('B', packet).tostring() # same as: packetStr = ''.join([chr(byte) for byte in packet])
+
+        # Protocol 2.0 for later Dynamixel compatible
+        elif (DXL_PROTOCOL == 2):
+            # Packet length
+            length = 4 + 3 # Number of params (addr lower and higher + size lower and higher) + 3
+
+            # Building the packet
+            # packet: (0xFF 0xFF 0xFD 0x00) ID (LEN_L LEN_H) INSTRUCTION (ADDR_L ADDR_H) (SIZE_L SIZE_H) (CRC_L CRC_H)
+            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, length&0xFF, (length>>8)&0xFF, DXL_READ_DATA, address&0xFF, (address>>8)&0xFF, size&0xFF, (size>>8)&0xFF]
+            checksum = self.__gen_crc16(packet)
+            packet.append(checksum&0xFF)
+            packet.append((checksum>>8)&0xFF)
+
+            # Okay convert to string for sending out
+            packetStr = array('B', packet).tostring()
 
         with self.serial_mutex:
             self.__write_serial(packetStr)
@@ -193,21 +210,45 @@ class DynamixelIO(object):
         like:
             write(1, DXL_GOAL_POSITION_L, (20, 1))
         """
-        # Number of bytes following standard header (0xFF, 0xFF, id, length)
-        length = 3 + len(data)  # instruction, address, len(data), checksum
 
-        # directly from AX-12 manual:
-        # Check Sum = ~ (ID + LENGTH + INSTRUCTION + PARAM_1 + ... + PARAM_N)
-        # If the calculated value is > 255, the lower byte is the check sum.
-        checksum = 255 - ((servo_id + length + DXL_WRITE_DATA + address + sum(data)) % 256)
+        # Obsolete protocol 1.0, keeping this here just in case
+        if (DXL_PROTOCOL == 1):
+            # Number of bytes following standard header (0xFF, 0xFF, id, length)
+            length = 3 + len(data)  # instruction, address, len(data), checksum
 
-        # packet: FF  FF  ID LENGTH INSTRUCTION PARAM_1 ... CHECKSUM
-        packet = [0xFF, 0xFF, servo_id, length, DXL_WRITE_DATA, address]
-        packet.extend(data)
-        packet.append(checksum)
+            # directly from AX-12 manual:
+            # Check Sum = ~ (ID + LENGTH + INSTRUCTION + PARAM_1 + ... + PARAM_N)
+            # If the calculated value is > 255, the lower byte is the check sum.
+            checksum = 255 - ((servo_id + length + DXL_WRITE_DATA + address + sum(data)) % 256)
 
-        packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
+            # packet: FF  FF  ID LENGTH INSTRUCTION PARAM_1 ... CHECKSUM
+            packet = [0xFF, 0xFF, servo_id, length, DXL_WRITE_DATA, address]
+            packet.extend(data)
+            packet.append(checksum)
 
+            packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
+
+        # Protocol 2.0 for later Dynamixel compatible
+        elif (DXL_PROTOCOL == 2):
+            # Packet length
+            length = 5 + len(data) # instruction, 2byte address, len(data), 2byte CRC
+
+            # Building the packet
+            # packet: (0xFF 0xFF 0xFD 0x00) ID (LEN_L LEN_H) INSTRUCTION (ADDR_L ADDR_H) (DATA_0 DATA_1 DATA_2 DATA_3) (CRC_L CRC_H)
+            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, length&0xFF, (length>>8)&0xFF, DXL_READ_DATA, address&0xFF, (address>>8)&0xFF]
+
+            # Calculating the checksum from the packet above
+            checksum = self.__gen_crc16(packet)
+
+            # Appending the data and checksum at the end
+            packet.extend(data)
+            packet.append(checksum&0xFF)
+            packet.append((checksum>>8)&0xFF)
+
+            # Convert to string
+            packetStr = array('B', packet).tostring()
+
+        # Send out the data packet
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
@@ -254,14 +295,14 @@ class DynamixelIO(object):
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-    def ping(self, servo_id, protocol=2):
+    def ping(self, servo_id):
         """ Ping the servo with "servo_id". This causes the servo to return a
         "status packet". This can tell us if the servo is attached and powered,
         and if so, if there are any errors.
         """
 
         # Below is the packet prepared for protocol 1.0
-        if (protocol == 1):
+        if (DXL_PROTOCOL == 1):
             # Number of bytes following standard header (0xFF, 0xFF, id, length)
             length = 2  # instruction, checksum
 
@@ -277,7 +318,7 @@ class DynamixelIO(object):
         # Then this is protol 2.0, refer to this website 
         # http://support.robotis.com/en/product/actuator/dynamixel_pro/communication/instruction_status_packet.htm
         # packet: (0xFF 0XFF 0XFD) (0X00) (ID) (LEN_L LEN_H) (Instruction) (Param1...ParamN) (CRC_L CRC_H)
-        if (protocol == 2):
+        if (DXL_PROTOCOL == 2):
             # Param + 3, but param = 0 for ping, thus self-explainatory
             length = 3
             
