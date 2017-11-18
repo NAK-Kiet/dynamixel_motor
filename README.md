@@ -13,3 +13,4 @@ Please setup/update your Dynamixel Motors properly before using this package: (f
       - Baud rate: should be 1Mbps (different settings can be used, just modified the launch file)
       - Protocol 2.0
       - Flash the latest firmware onto the servo
+      - Just a side note, but for best result, modify the Return Delay Time field on the motor to 50 (100us), as the delay on rospy is not very precise, thus can cause annoying red errors...
