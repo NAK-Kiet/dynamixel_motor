@@ -336,9 +336,6 @@ class DynamixelIO(object):
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-            # Print out the packet to terminal for debug purpose
-            print("Packet sent to motor", servo_id, packet)
-
             # wait for response packet from the motor
             timestamp = time.time()
             time.sleep(0.13)
@@ -353,7 +350,6 @@ class DynamixelIO(object):
         if response:
             self.exception_on_error(response[4], servo_id, 'ping')
 
-        print("Packet received from motor", servo_id, response)
         return response
 
     def test_bit(self, number, offset):
@@ -925,10 +921,23 @@ class DynamixelIO(object):
 
     def get_model_number(self, servo_id):
         """ Reads the servo's model number (e.g. 12 for AX-12+). """
-        response = self.read(servo_id, DXL_MODEL_NUMBER_L, 2)
-        if response:
-            self.exception_on_error(response[4], servo_id, 'fetching model number')
-        return response[5] + (response[6] << 8)
+        model = 0
+        # Old method of getting model number from Protocol 1.0
+        if (DXL_PROTOCOL == 1):
+            response = self.read(servo_id, DXL_MODEL_NUMBER_L, 2)
+            if response:
+                self.exception_on_error(response[4], servo_id, 'fetching model number')
+            model = response[5] + (response[6] << 8)
+
+        # Model is embedded into ping return package in Protocol 2.0
+        elif (DXL_PROTOCOL == 2):
+            response = self.ping(servo_id)
+            if response:
+                self.exception_on_error(response[8], servo_id, 'fetching model number')
+            model = response[9] + (response[10] << 8)
+
+        # Got model, return here
+        return model
 
     def get_firmware_version(self, servo_id):
         """ Reads the servo's firmware version. """
