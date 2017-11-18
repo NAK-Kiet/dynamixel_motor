@@ -338,7 +338,7 @@ class DynamixelIO(object):
 
             # wait for response packet from the motor
             timestamp = time.time()
-            time.sleep(0.13)
+            time.sleep(0.0013)
 
             # read response
             try:
