@@ -224,8 +224,6 @@ class DynamixelIO(object):
             packet.extend(data)
             packet.append(checksum)
 
-            packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
-
         # Protocol 2.0 for later Dynamixel compatible
         elif (DXL_PROTOCOL == 2):
             # Packet length
@@ -243,10 +241,8 @@ class DynamixelIO(object):
             packet.append(checksum&0xFF)
             packet.append((checksum>>8)&0xFF)
 
-            # Convert to string
-            packetStr = array('B', packet).tostring()
-
-        # Send out the data packet
+        # Convert to string and send out the data packet
+        packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
@@ -273,23 +269,41 @@ class DynamixelIO(object):
         550, the method should be called like:
             sync_write(DXL_GOAL_POSITION_L, ( (1, 20, 1), (2 ,38, 2) ))
         """
-        # Calculate length and sum of all data
-        flattened = [value for servo in data for value in servo]
 
-        # Number of bytes following standard header (0xFF, 0xFF, id, length) plus data
-        length = 4 + len(flattened)
+        # Obsolete protocol 1.0, keeping this here just in case
+        if (DXL_PROTOCOL == 1):
+            # Calculate length and sum of all data
+            flattened = [value for servo in data for value in servo]
 
-        checksum = 255 - ((DXL_BROADCAST + length + \
-                          DXL_SYNC_WRITE + address + len(data[0][1:]) + \
-                          sum(flattened)) % 256)
+            # Number of bytes following standard header (0xFF, 0xFF, id, length) plus data
+            length = 4 + len(flattened)
 
-        # packet: FF  FF  ID LENGTH INSTRUCTION PARAM_1 ... CHECKSUM
-        packet = [0xFF, 0xFF, DXL_BROADCAST, length, DXL_SYNC_WRITE, address, len(data[0][1:])]
-        packet.extend(flattened)
-        packet.append(checksum)
+            checksum = 255 - ((DXL_BROADCAST + length + \
+                              DXL_SYNC_WRITE + address + len(data[0][1:]) + \
+                              sum(flattened)) % 256)
 
+            # packet: FF  FF  ID LENGTH INSTRUCTION PARAM_1 ... CHECKSUM
+            packet = [0xFF, 0xFF, DXL_BROADCAST, length, DXL_SYNC_WRITE, address, len(data[0][1:])]
+            packet.extend(flattened)
+            packet.append(checksum)
+
+        # Protocol 2.0 for later Dynamixel compatible
+        elif (DXL_PROTOCOL == 2):
+             # Calculate length and sum of all data
+            flattened = [value for servo in data for value in servo]
+
+            # Number of bytes following standard header (0xFF, 0xFF, 0xFD, 0x00, id, 2bit length) plus data
+            length = 7 + len(flattened)
+
+            # packet: FF FF FD 00 ID LEN_L LEN_H INSTRUCTION PARAM_1... CRC_L CRC_H
+            packet = [0xFF, 0xFF, 0xFD, 0x00, DXL_BROADCAST, (length&0xFF), ((length>>8)&0xFF), DXL_SYNC_WRITE, (address&0xFF), ((address>>8)&0xFF)]
+            checksum = self.__gen_crc16(packet)
+            packet.extend(flattened)
+            packet.append(checksum&0xFF)
+            packet.append((checksum>>8)&0xFF)
+
+        # Convert and send out message to motors
         packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
-
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
