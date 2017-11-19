@@ -66,8 +66,6 @@ class DynamixelIO(object):
             self.ser = None
             self.ser = serial.Serial(port, baudrate, timeout=0.015)
             self.port_name = port
-            print("Connecting to port", port)
-            print("Current baudrate", baudrate)
             self.readback_echo = readback_echo
         except SerialOpenError:
            raise SerialOpenError(port, baudrate)
