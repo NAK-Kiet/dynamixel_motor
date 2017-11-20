@@ -98,7 +98,7 @@ if __name__ == '__main__':
     try:
 
         # Create a publisher here just so we can publish to it once the controllers are done spawning
-        pub = rospy.Publisher('controller_spawner_done_init', Bool, queue_size=4)
+        done_pub = rospy.Publisher('controller_spawner_done_init', Bool, queue_size=4)
 
         rospy.init_node('controller_spawner', anonymous=True)
         
@@ -149,7 +149,7 @@ if __name__ == '__main__':
             dependencies = joint_controllers[1:]
             manage_controller(controller_name, port_namespace, controller_type, command, dependencies, start_controller, stop_controller, restart_controller)
 
-        # Alert to some topic that the motors have started cleanly
-        pub.publish(True)
+        # Brief delay before alerting to some topic that the motors have started cleanly
+        done_pub.publish(True)
     except rospy.ROSInterruptException: pass
 
