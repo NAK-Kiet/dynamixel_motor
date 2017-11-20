@@ -98,7 +98,7 @@ if __name__ == '__main__':
     try:
 
         # Create a publisher here just so we can publish to it once the controllers are done spawning
-        pub = rospy.publisher('controller_spawner_done_init', Bool, queue_size=4)
+        pub = rospy.Publisher('controller_spawner_done_init', Bool, queue_size=4)
 
         rospy.init_node('controller_spawner', anonymous=True)
         
