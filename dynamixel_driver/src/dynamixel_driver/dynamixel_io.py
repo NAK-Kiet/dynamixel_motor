@@ -172,7 +172,7 @@ class DynamixelIO(object):
         # Protocol 2.0 for later Dynamixel compatible
         elif (DXL_PROTOCOL == 2):
             # Packet length
-            length = 4 + 3 # Number of params (addr lower and higher + size lower and higher) + 3
+            length = 4 + 3 # Number of params (addr lower and higher + size lower and higher) + 3 (instruction + 2 checksum)
 
             # Building the packet
             # packet: (0xFF 0xFF 0xFD 0x00) ID (LEN_L LEN_H) INSTRUCTION (ADDR_L ADDR_H) (SIZE_L SIZE_H) (CRC_L CRC_H)
@@ -292,11 +292,11 @@ class DynamixelIO(object):
              # Calculate length and sum of all data
             flattened = [value for servo in data for value in servo]
 
-            # Number of bytes following standard header (0xFF, 0xFF, 0xFD, 0x00, id, 2bit length) plus data
+            # Number of bytes following standard header (instruction, 2byte address, 2byte len, 2byte checksum) plus data
             length = 7 + len(flattened)
 
             # packet: FF FF FD 00 ID LEN_L LEN_H INSTRUCTION PARAM_1... CRC_L CRC_H
-            packet = [0xFF, 0xFF, 0xFD, 0x00, DXL_BROADCAST, (length&0xFF), ((length>>8)&0xFF), DXL_SYNC_WRITE, (address&0xFF), ((address>>8)&0xFF)]
+            packet = [0xFF, 0xFF, 0xFD, 0x00, DXL_BROADCAST, (length&0xFF), ((length>>8)&0xFF), DXL_SYNC_WRITE, (address&0xFF), ((address>>8)&0xFF), len(data[0][1:])&0xFF, (len(data[0][1:])>>8)&0xFF]
             checksum = self.__gen_crc16(packet)
             packet.extend(flattened)
             packet.append(checksum&0xFF)
@@ -1050,43 +1050,94 @@ class DynamixelIO(object):
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
 
 
-    def get_feedback(self, servo_id):
+    def get_feedback(self, servo_id, dxl_model=30):
         """
         Returns the id, goal, position, error, speed, load, voltage, temperature
         and moving values from the specified servo.
         """
-        # read in 17 consecutive bytes starting with low value for goal position
-        response = self.read(servo_id, DXL_GOAL_POSITION_L, 17)
 
-        if response:
-            self.exception_on_error(response[4], servo_id, 'fetching full servo status')
-        if len(response) == 24:
-            # extract data values from the raw data
-            goal = response[5] + (response[6] << 8)
-            position = response[11] + (response[12] << 8)
-            error = position - goal
-            speed = response[13] + ( response[14] << 8)
-            if speed > 1023: speed = 1023 - speed
-            load_raw = response[15] + (response[16] << 8)
-            load_direction = 1 if self.test_bit(load_raw, 10) else 0
-            load = (load_raw & int('1111111111', 2)) / 1024.0
-            if load_direction == 1: load = -load
-            voltage = response[17] / 10.0
-            temperature = response[18]
-            moving = response[21]
-            timestamp = response[-1]
+        # Dictionary for return
+        data_feedback = dict()
 
-            # return the data in a dictionary
-            return { 'timestamp': timestamp,
-                     'id': servo_id,
-                     'goal': goal,
-                     'position': position,
-                     'error': error,
-                     'speed': speed,
-                     'load': load,
-                     'voltage': voltage,
-                     'temperature': temperature,
-                     'moving': bool(moving) }
+        # Fetching feedback for the older MX-28
+        if (dxl_model == 28):
+            # read in 17 consecutive bytes starting with low value for goal position
+            response = self.read(servo_id, DXL_GOAL_POSITION_L, 17)
+
+            if response:
+                self.exception_on_error(response[4], servo_id, 'fetching full servo status')
+            if len(response) == 24:
+                # extract data values from the raw data
+                goal = response[5] + (response[6] << 8)
+                position = response[11] + (response[12] << 8)
+                error = position - goal
+                speed = response[13] + ( response[14] << 8)
+                if speed > 1023: speed = 1023 - speed
+                load_raw = response[15] + (response[16] << 8)
+                load_direction = 1 if self.test_bit(load_raw, 10) else 0
+                load = (load_raw & int('1111111111', 2)) / 1024.0
+                if load_direction == 1: load = -load
+                voltage = response[17] / 10.0
+                temperature = response[18]
+                moving = response[21]
+                timestamp = response[-1]
+
+                data_feedback = { 'timestamp': timestamp,
+                 'id': servo_id,
+                 'goal': goal,
+                 'position': position,
+                 'error': error,
+                 'speed': speed,
+                 'load': load,
+                 'voltage': voltage,
+                 'temperature': temperature,
+                 'moving': bool(moving) }
+
+        # Fetching feedback for the MX-28 firmware version 41
+        elif (dxl_model == 30):
+            # read in 20 consectutive bytes starting from 116 to 136
+            response = self.read(servo_id, 116, 20)
+
+            if response:
+                self.exception_on_error(response[8], servo_id, 'fetching full servo status')
+            if (len(response) == 32): # counting the additional timestamp as well
+                # Start the data extraction process
+                goal = response[9] + (response[10]<<8) + (response[11]<<16) + (response[12]<<24)
+                position = response[25] + (response[26]<<8) + (response[27]<<16) + (response[28]<<24)
+                error = position - goal
+
+                # Done with the positions, moving over to speed
+                speed = response[21] + (response[22]<<8) + (response[23]<<16) + (response[24]<<24)
+                if speed > 123: speed = 1023 - speed
+
+                # Now moving over to load
+                load_raw = response[19] + (response[20]<<8)
+                load_direction = 1 if self.test_bit(load_raw, 10) else 0
+                load = (load_raw & int('1111111111', 2)) / 1024.0
+                if load_direction == 1: load = -load
+
+                # Voltage, temperature not implemented...
+                voltage = 0
+                temperature = 0
+
+                # Moving and timestamp
+                moving = response[15]
+                timestamp = response[-1]
+
+
+                data_feedback = { 'timestamp': timestamp,
+                 'id': servo_id,
+                 'goal': goal,
+                 'position': position,
+                 'error': error,
+                 'speed': speed,
+                 'load': load,
+                 'voltage': voltage,
+                 'temperature': temperature,
+                 'moving': bool(moving) }
+
+        # return the data in a dictionary
+        return data_feedback
 
     def get_led(self, servo_id):
         """
