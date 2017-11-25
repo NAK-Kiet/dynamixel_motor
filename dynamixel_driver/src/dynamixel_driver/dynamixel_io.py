@@ -60,6 +60,9 @@ class DynamixelIO(object):
     """
 
     def __init__(self, port, baudrate, readback_echo=False):
+        # Kinda cooking pasta now but since we are using 2 different motor types, this has to be done...
+        self.motors_model = dict()
+
         """ Constructor takes serial port and baudrate as arguments. """
         try:
             self.serial_mutex = Lock()
@@ -657,16 +660,42 @@ class DynamixelIO(object):
         Set the servo with servo_id to the specified goal speed.
         Speed can be negative only if the dynamixel is in "freespin" mode.
         """
-        # split speed into 2 bytes
-        if speed >= 0:
-            loVal = int(speed % 256)
-            hiVal = int(speed >> 8)
-        else:
-            loVal = int((1023 - speed) % 256)
-            hiVal = int((1023 - speed) >> 8)
+
+        # Packet to be sent out to the motors
+        packet = []
+
+        # MX-28 old version or XL-320, nice consistency but different protocol, very nice
+        if (self.motors_model[servo_id] == 28) or (self.motors_model[servo_id] == 350):
+            # split speed into 2 bytes
+            if speed >= 0:
+                loVal = int(speed & 0xFF)
+                hiVal = int(speed >> 8)
+                packet.append((loVal, hiVal))
+            else:
+                loVal = int((1023 - speed) & 0xFF)
+                hiVal = int((1023 - speed) >> 8)
+                packet.append((loVal, hiVal))
+
+        # MX-28 new version, loving the consistency
+        if (self.motors_model[servo_id] == 30):
+            # split speed into 4 bytes
+            if speed >= 0:
+                speed1 = int(speed&0xFF)
+                speed2 = int((speed>>8)&0xFF)
+                speed3 = int((speed>>16)&0xFF)
+                speed4 = int((speed>>24)&0xFF)
+                packet.append((speed1, speed2, speed3, speed4))
+            else:
+                speed1 = int((1023 - speed)&0xFF)
+                speed2 = int(((1023 - speed)>>8)&0xFF)
+                speed3 = int(((1023 - speed)>>16)&0xFF)
+                speed4 = int(((1023 - speed)>>24)&0xFF)
+                packet.append((speed1, speed2, speed3, speed4))
 
         # set two register values with low and high byte for the speed
-        response = self.write(servo_id, DXL_GOAL_SPEED_L, (loVal, hiVal))
+        if (self.motors_model[servo_id] == 28) or (self.motors_model[servo_id] == 350): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
+        elif (self.motors_model[servo_id] == 30): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
+        
         if response:
             self.exception_on_error(response[4], servo_id, 'setting moving speed to %d' % speed)
         return response
@@ -838,19 +867,33 @@ class DynamixelIO(object):
         Should be called as such:
         set_multi_position( ( (id1, position1), (id2, position2), (id3, position3) ) )
         """
+        
         # prepare value tuples for call to syncwrite
         writeableVals = []
 
         for vals in valueTuples:
             sid = vals[0]
             position = vals[1]
-            # split position into 2 bytes
-            loVal = int(position % 256)
-            hiVal = int(position >> 8)
-            writeableVals.append( (sid, loVal, hiVal) )
+
+            # MX-28 old version or XL-320, man the consistency here is awesome
+            if (self.motors_model[sid] == 28) or (self.motors_model[sid] == 350):
+                # split position into 2 bytes
+                loVal = int(position % 256)
+                hiVal = int(position >> 8)
+                writeableVals.append( (sid, loVal, hiVal) )
+
+            # MX-28 new version
+            elif (self.motors_model[sid] == 30):
+                # split position into 4 bytes, thank you Dynamixel for the consistency
+                pos1 = int(position&0xFF)
+                pos2 = int((position>>8)&0xFF)
+                pos3 = int((position>>16)&0xFF)
+                pos4 = int((position>>24)&0xFF)
+                writeableVals.append( (sid, pos1, pos2, pos3, pos4))
 
         # use sync write to broadcast multi servo message
-        self.sync_write(DXL_GOAL_POSITION_L, writeableVals)
+        if (self.motors_model[sid] == 30): self.sync_write(116, writeableVals)
+        elif (self.motors_model[sid] == 28) or (self.motors_model[sid] == 350): self.sync_write(DXL_GOAL_POSITION_L, writeableVals)
 
     def set_multi_speed(self, valueTuples):
         """
@@ -1226,6 +1269,9 @@ class DynamixelIO(object):
         if not error_code & DXL_INSTRUCTION_ERROR == 0:
             msg = 'Instruction Error ' + ex_message
             exception = NonfatalErrorCodeError(msg, error_code)
+
+    def import_motors_model(self, motors_model):
+        self.motors_model = motors_model
 
 class SerialOpenError(Exception):
     def __init__(self, port, baud):

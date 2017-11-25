@@ -236,11 +236,10 @@ class SerialProxy():
                         status_str += '%d, ' % motor_id
                         
                 status_str = status_str[:-2] + '], '
-                
+        
+        # Import the motor models into our DxlIO and print out to terminal
+        self.dxl_io.import_motors_model(self.motors_models)
         rospy.loginfo('%s, initialization complete.' % status_str[:-2])
-
-        # TODO: publish to a topic to alert the controllers have all started successfully 
-        # (within controller_manager.py under the dynamixel_controllers package)
 
     def __update_motor_states(self):
         num_events = 50
