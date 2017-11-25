@@ -1108,13 +1108,12 @@ class DynamixelIO(object):
 
                 # Done with the positions, moving over to speed
                 speed = response[21] + (response[22]<<8) + (response[23]<<16) + (response[24]<<24)
-                if speed > 123: speed = 1023 - speed
+                if speed > 1023: speed = (speed&0x3FF) - 1023
 
                 # Now moving over to load
                 load_raw = response[19] + (response[20]<<8)
-                load_direction = 1 if self.test_bit(load_raw, 10) else 0
-                load = (load_raw & int('1111111111', 2)) / 1024.0
-                if load_direction == 1: load = -load
+                if (load_raw > 1000): load_raw -= 0xFFFF
+                load = load_raw / 1000.0 # load somehow changed unit to 0.1%
 
                 # Voltage, temperature not implemented...
                 voltage = 0
