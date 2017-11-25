@@ -165,6 +165,7 @@ class SerialProxy():
     def __find_motors(self):
         rospy.loginfo('%s: Pinging motor IDs %d through %d...' % (self.port_namespace, self.min_motor_id, self.max_motor_id))
         self.motors = []
+        self.motors_models = dict() # dictionary to store the motor models for each motor
         self.motor_static_info = {}
 
         # Trial counter, in case baud rate is wrongly setup and serial kept on running forever
@@ -201,12 +202,13 @@ class SerialProxy():
             sys.exit(1)
             
         counts = defaultdict(int)
+        self.motors_models.fromkeys(self.motors)
         
-        to_delete_if_error = []
         for motor_id in self.motors:
             while(True):
                 try:
                     model_number = self.dxl_io.get_model_number(motor_id)
+                    self.motors_models[motor_id] = model_number
                     self.__fill_motor_parameters(motor_id, model_number)
                     rospy.loginfo("Getting model number for motor %i", motor_id)
                 except Exception as ex:
@@ -251,7 +253,7 @@ class SerialProxy():
             motor_states = []
             for motor_id in self.motors:
                 try:
-                    state = self.dxl_io.get_feedback(motor_id)
+                    state = self.dxl_io.get_feedback(motor_id, self.motors_models[motor_id])
                     if state:
                         motor_states.append(MotorState(**state))
                         if dynamixel_io.exception: raise dynamixel_io.exception

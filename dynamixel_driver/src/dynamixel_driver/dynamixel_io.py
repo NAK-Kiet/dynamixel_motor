@@ -1050,7 +1050,7 @@ class DynamixelIO(object):
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
 
 
-    def get_feedback(self, servo_id, dxl_model=30):
+    def get_feedback(self, servo_id, dxl_model):
         """
         Returns the id, goal, position, error, speed, load, voltage, temperature
         and moving values from the specified servo.
@@ -1134,6 +1134,50 @@ class DynamixelIO(object):
                  'voltage': voltage,
                  'temperature': temperature,
                  'moving': bool(moving) }
+
+        # Fetching feedback for the XL-320
+        elif (dxl_model == 350):
+            # read in 20 consecutive bytes starting from 30 to 50
+            response = self.read(servo_id, 30, 19)
+
+            if response:
+                self.exception_on_error(response[8], servo_id, 'fetching full servo status')
+
+            if (len(response) == 31): # counting the additional timestamp as well
+                # Start the data extraction process
+                goal = response[9] + (response[10]<<8)
+                position = response[16] + (response[17]<<8)
+                error = position - goal
+
+                # Done with the positions, moving over to speed
+                speed = response[18] + (response[19]<<8)
+                if speed > 1023: speed = (speed&0x3FF) - 1023
+
+                # Now moving over to load
+                load_raw = response[20] + (response[21]<<8)
+                if (load_raw > 1023): load_raw = 1023 - load_raw
+                load = load_raw / 1024.0 # back to 0-1023 for this guy, great consistency Dynamixel
+
+                # Voltage, temperature not implemented...
+                voltage = response[24]
+                temperature = response[25]
+
+                # Moving and timestamp
+                moving = response[28]
+                timestamp = response[-1]
+
+
+                data_feedback = { 'timestamp': timestamp,
+                    'id': servo_id,
+                    'goal': goal,
+                    'position': position,
+                    'error': error,
+                    'speed': speed,
+                    'load': load,
+                    'voltage': voltage,
+                    'temperature': temperature,
+                    'moving': bool(moving) }
+
 
         # return the data in a dictionary
         return data_feedback
