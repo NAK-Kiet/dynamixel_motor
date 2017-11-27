@@ -111,11 +111,11 @@ class DynamixelIO(object):
         if self.readback_echo:
             self.ser.read(len(data))
 
-    def __read_response(self, servo_id):
+    def __read_response(self, servo_id, protocol):
         data = []
         
         # Obsolete protocol 1.0, keeping it here just in case we need it in the future
-        if (DXL_PROTOCOL == 1):
+        if (protocol == 1):
             try:
                 data.extend(self.ser.read(4))
                 if not data[0:2] == ['\xff', '\xff']: raise Exception('Wrong packet prefix %s' % data[0:2])
@@ -127,7 +127,7 @@ class DynamixelIO(object):
             if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
 
         # Protocol 2.0 to match with the later Dynamixel models
-        elif (DXL_PROTOCOL == 2):
+        elif (protocol == 2):
 
             # Not sure why there's a try exception here but whatever
             try:
@@ -149,7 +149,7 @@ class DynamixelIO(object):
 
         return data
 
-    def read(self, servo_id, address, size):
+    def read(self, servo_id, address, size, protocol):
         """ Read "size" bytes of data from servo with "servo_id" starting at the
         register with "address". "address" is an integer between 0 and 57. It is
         recommended to use the constants in module dynamixel_const for readability.
@@ -159,7 +159,7 @@ class DynamixelIO(object):
             read(1, DXL_GOAL_POSITION_L, 2)
         """
         # Obsolete protocol 1.0, keeping this here just in case
-        if (DXL_PROTOCOL == 1):
+        if (protocol == 1):
             # Number of bytes following standard header (0xFF, 0xFF, id, length)
             length = 4  # instruction, address, size, checksum
 
@@ -173,7 +173,7 @@ class DynamixelIO(object):
             packetStr = array('B', packet).tostring() # same as: packetStr = ''.join([chr(byte) for byte in packet])
 
         # Protocol 2.0 for later Dynamixel compatible
-        elif (DXL_PROTOCOL == 2):
+        elif (protocol == 2):
             # Packet length
             length = 4 + 3 # Number of params (addr lower and higher + size lower and higher) + 3 (instruction + 2 checksum)
 
@@ -195,7 +195,7 @@ class DynamixelIO(object):
             time.sleep(0.0013)#0.00235)
 
             # read response
-            data = self.__read_response(servo_id)
+            data = self.__read_response(servo_id, protocol)
             data.append(timestamp)
 
         return data
@@ -296,7 +296,7 @@ class DynamixelIO(object):
             flattened = [value for servo in data for value in servo]
 
             # Number of bytes following standard header (instruction, 2byte address, 2byte len, 2byte checksum) plus data
-            length = 7 + len(flattened)
+            length = 5 + len(flattened)
 
             # packet: FF FF FD 00 ID LEN_L LEN_H INSTRUCTION PARAM_1... CRC_L CRC_H
             packet = [0xFF, 0xFF, 0xFD, 0x00, DXL_BROADCAST, (length&0xFF), ((length>>8)&0xFF), DXL_SYNC_WRITE, (address&0xFF), ((address>>8)&0xFF), len(data[0][1:])&0xFF, (len(data[0][1:])>>8)&0xFF]
@@ -307,17 +307,18 @@ class DynamixelIO(object):
 
         # Convert and send out message to motors
         packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
+        print packet
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-    def ping(self, servo_id):
+    def ping(self, servo_id, protocol):
         """ Ping the servo with "servo_id". This causes the servo to return a
         "status packet". This can tell us if the servo is attached and powered,
         and if so, if there are any errors.
         """
 
         # Below is the packet prepared for protocol 1.0
-        if (DXL_PROTOCOL == 1):
+        if (protocol == 1):
             # Number of bytes following standard header (0xFF, 0xFF, id, length)
             length = 2  # instruction, checksum
 
@@ -333,7 +334,7 @@ class DynamixelIO(object):
         # Then this is protol 2.0, refer to this website 
         # http://support.robotis.com/en/product/actuator/dynamixel_pro/communication/instruction_status_packet.htm
         # packet: (0xFF 0XFF 0XFD) (0X00) (ID) (LEN_L LEN_H) (Instruction) (Param1...ParamN) (CRC_L CRC_H)
-        if (DXL_PROTOCOL == 2):
+        elif (protocol == 2):
             # Param + 3, but param = 0 for ping, thus self-explainatory
             length = 3
             
@@ -357,7 +358,7 @@ class DynamixelIO(object):
 
             # read response
             try:
-                response = self.__read_response(servo_id)
+                response = self.__read_response(servo_id, protocol)
                 response.append(timestamp)
             except Exception, e:
                 response = []
@@ -868,32 +869,36 @@ class DynamixelIO(object):
         set_multi_position( ( (id1, position1), (id2, position2), (id3, position3) ) )
         """
         
-        # prepare value tuples for call to syncwrite
-        writeableVals = []
+        # prepare value tuples for call to syncwrite and get the motor model
+        # writeableVals = []
 
         for vals in valueTuples:
             sid = vals[0]
             position = vals[1]
+            dxl_model = self.motors_model[sid]
 
             # MX-28 old version or XL-320, man the consistency here is awesome
-            if (self.motors_model[sid] == 28) or (self.motors_model[sid] == 350):
+            if (dxl_model == 28) or (dxl_model == 350):
                 # split position into 2 bytes
                 loVal = int(position % 256)
                 hiVal = int(position >> 8)
-                writeableVals.append( (sid, loVal, hiVal) )
+                # writeableVals.append( (sid, loVal, hiVal) )
+                self.write(sid, DXL_GOAL_POSITION_L, (loVal, hiVal))
 
             # MX-28 new version
-            elif (self.motors_model[sid] == 30):
+            elif (dxl_model == 30):
                 # split position into 4 bytes, thank you Dynamixel for the consistency
                 pos1 = int(position&0xFF)
                 pos2 = int((position>>8)&0xFF)
                 pos3 = int((position>>16)&0xFF)
                 pos4 = int((position>>24)&0xFF)
-                writeableVals.append( (sid, pos1, pos2, pos3, pos4))
+                # writeableVals.append( (sid, pos1, pos2, pos3, pos4))
+                self.write(sid, 116, (pos1, pos2, pos3, pos4))
+
 
         # use sync write to broadcast multi servo message
-        if (self.motors_model[sid] == 30): self.sync_write(116, writeableVals)
-        elif (self.motors_model[sid] == 28) or (self.motors_model[sid] == 350): self.sync_write(DXL_GOAL_POSITION_L, writeableVals)
+        # if (dxl_model == 30): self.sync_write(116, writeableVals)
+        # elif (dxl_model == 28) or (dxl_model == 350): self.sync_write(DXL_GOAL_POSITION_L, writeableVals)
 
     def set_multi_speed(self, valueTuples):
         """
@@ -974,19 +979,19 @@ class DynamixelIO(object):
     # Servo status access functions #
     #################################
 
-    def get_model_number(self, servo_id):
+    def get_model_number(self, servo_id, protocol):
         """ Reads the servo's model number (e.g. 12 for AX-12+). """
         model = 0
         # Old method of getting model number from Protocol 1.0
-        if (DXL_PROTOCOL == 1):
-            response = self.read(servo_id, DXL_MODEL_NUMBER_L, 2)
+        if (protocol == 1):
+            response = self.read(servo_id, DXL_MODEL_NUMBER_L, 2, protocol)
             if response:
                 self.exception_on_error(response[4], servo_id, 'fetching model number')
             model = response[5] + (response[6] << 8)
 
         # Model is embedded into ping return package in Protocol 2.0
-        elif (DXL_PROTOCOL == 2):
-            response = self.ping(servo_id)
+        elif (protocol == 2):
+            response = self.ping(servo_id, protocol)
             if response:
                 self.exception_on_error(response[8], servo_id, 'fetching model number')
             model = response[9] + (response[10] << 8)
@@ -1093,14 +1098,15 @@ class DynamixelIO(object):
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
 
 
-    def get_feedback(self, servo_id, dxl_model):
+    def get_feedback(self, servo_id):
         """
         Returns the id, goal, position, error, speed, load, voltage, temperature
         and moving values from the specified servo.
         """
 
-        # Dictionary for return
+        # Dictionary for return and motor model
         data_feedback = dict()
+        dxl_model = self.motors_model[servo_id]
 
         # Fetching feedback for the older MX-28
         if (dxl_model == 28):
@@ -1166,7 +1172,6 @@ class DynamixelIO(object):
                 moving = response[15]
                 timestamp = response[-1]
 
-
                 data_feedback = { 'timestamp': timestamp,
                  'id': servo_id,
                  'goal': goal,
@@ -1201,14 +1206,13 @@ class DynamixelIO(object):
                 if (load_raw > 1023): load_raw = 1023 - load_raw
                 load = load_raw / 1024.0 # back to 0-1023 for this guy, great consistency Dynamixel
 
-                # Voltage, temperature not implemented...
-                voltage = response[24]
+                # Voltage, temperature reading
+                voltage = response[24] / 10.0
                 temperature = response[25]
 
                 # Moving and timestamp
                 moving = response[28]
                 timestamp = response[-1]
-
 
                 data_feedback = { 'timestamp': timestamp,
                     'id': servo_id,
@@ -1220,7 +1224,6 @@ class DynamixelIO(object):
                     'voltage': voltage,
                     'temperature': temperature,
                     'moving': bool(moving) }
-
 
         # return the data in a dictionary
         return data_feedback

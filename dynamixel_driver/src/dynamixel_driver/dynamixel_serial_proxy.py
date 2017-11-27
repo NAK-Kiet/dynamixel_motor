@@ -165,50 +165,55 @@ class SerialProxy():
     def __find_motors(self):
         rospy.loginfo('%s: Pinging motor IDs %d through %d...' % (self.port_namespace, self.min_motor_id, self.max_motor_id))
         self.motors = []
-        self.motors_models = dict() # dictionary to store the motor models for each motor
+        self.motors_info = dict() # dictionary to store the motor models for each motor
         self.motor_static_info = {}
 
         # Trial counter, in case baud rate is wrongly setup and serial kept on running forever
         cnt = 0
         
+        # Pinging the motors across protocol 1 and 2
         for motor_id in range(self.min_motor_id, self.max_motor_id + 1):
-            while(True):
-                try:
-                    result = self.dxl_io.ping(motor_id)
-                    rospy.loginfo("Pinging motor %i", motor_id)
-                    cnt += 1
+            for protocol in range(1,3):
+                while(True):
+                    try:
+                        result = self.dxl_io.ping(motor_id, protocol)
+                        # rospy.loginfo("Pinging motor %i", motor_id)
+                        cnt += 1
 
-                except Exception as ex:
-                    rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
+                    except Exception as ex:
+                        rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
+                        
+                        # Now that we have encountered an error, wait a bit for the UART channel to clear out
+                        rospy.sleep(0.1)
+                        continue
                     
-                    # Now that we have encountered an error, wait a bit for the UART channel to clear out
-                    rospy.sleep(0.1)
-                    continue
-                
 
-                if result:
-                    rospy.loginfo("Got ping from motor %i!!!", motor_id)
-                    self.motors.append(motor_id)
-                    break
+                    if result:
+                        rospy.loginfo("Got ping from motor %i!!!", motor_id)
+                        self.motors.append(motor_id)
+                        self.motors_info[motor_id] = {'Protocol': protocol}
+                        break
 
-                # Terminate if cannot connect to motor
-                if cnt > 5:
-                    cnt = 0
-                    rospy.loginfo("Cannot find motor %i, terminating...", motor_id)
-                    break
+                    # Terminate if cannot connect to motor
+                    if cnt > 5:
+                        cnt = 0
+                        # rospy.loginfo("Cannot find motor %i, terminating...", motor_id)
+                        break
+
+                # Now if we have already got the correct protocol, break out of the loop
+                if self.motors_info.get(motor_id, False): break
                     
         if not self.motors:
             rospy.logfatal('%s: No motors found.' % self.port_namespace)
             sys.exit(1)
             
         counts = defaultdict(int)
-        self.motors_models.fromkeys(self.motors)
         
         for motor_id in self.motors:
             while(True):
                 try:
-                    model_number = self.dxl_io.get_model_number(motor_id)
-                    self.motors_models[motor_id] = model_number
+                    model_number = self.dxl_io.get_model_number(motor_id, self.motors_info[motor_id]['Protocol'])
+                    self.motors_info[motor_id]['Model number'] = model_number
                     self.__fill_motor_parameters(motor_id, model_number)
                     rospy.loginfo("Getting model number for motor %i", motor_id)
                 except Exception as ex:
@@ -238,7 +243,7 @@ class SerialProxy():
                 status_str = status_str[:-2] + '], '
         
         # Import the motor models into our DxlIO and print out to terminal
-        self.dxl_io.import_motors_model(self.motors_models)
+        self.dxl_io.import_motors_model(self.motors_info)
         rospy.loginfo('%s, initialization complete.' % status_str[:-2])
 
     def __update_motor_states(self):
@@ -252,7 +257,7 @@ class SerialProxy():
             motor_states = []
             for motor_id in self.motors:
                 try:
-                    state = self.dxl_io.get_feedback(motor_id, self.motors_models[motor_id])
+                    state = self.dxl_io.get_feedback(motor_id)
                     if state:
                         motor_states.append(MotorState(**state))
                         if dynamixel_io.exception: raise dynamixel_io.exception
