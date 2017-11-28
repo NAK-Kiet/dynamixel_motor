@@ -307,7 +307,6 @@ class DynamixelIO(object):
 
         # Convert and send out message to motors
         packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
-        print packet
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
@@ -1045,7 +1044,7 @@ class DynamixelIO(object):
 
         # Again, we are having this thanks to the Dynamixel consistency
         motor_model = self.motors_model[servo_id]['Model number']
-        if (motor_model == 28) or (motors_model == 12):
+        if (motor_model == 28) or (motor_model == 12):
             response = self.read(servo_id, DXL_DOWN_LIMIT_VOLTAGE, 2, protocol)
         elif (motor_model == 350):
             response = self.read(servo_id, 13, 2, protocol)
@@ -1079,7 +1078,15 @@ class DynamixelIO(object):
 
     def get_voltage(self, servo_id, protocol = 1):
         """ Reads the servo's voltage. """
-        response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1, protocol)
+        # Empty response packet so we can request accordingly to motor models
+        response = []
+
+        # Consistency issues, who would have guessed
+        motor_model = self.motors_model[servo_id]['Model number']
+        if (motor_model == 28) or (motor_model == 12):
+            response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1, protocol)
+        elif (motor_model == 350):
+            response = self.read(servo_id, 45, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching supplied voltage')
         return response[5] / 10.0

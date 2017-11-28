@@ -123,8 +123,7 @@ class SerialProxy():
         Some of these paramters are used in joint controller implementation.
         """
         angles = self.dxl_io.get_angle_limits(motor_id, protocol)
-        # comment this out as the voltage address maybe difference, also not needed, waduhek Antons?????
-        # voltage = self.dxl_io.get_voltage(motor_id, protocol) 
+        voltage = self.dxl_io.get_voltage(motor_id, protocol) 
         voltages = self.dxl_io.get_voltage_limits(motor_id, protocol)
         
         rospy.set_param('dynamixel/%s/%d/model_number' %(self.port_namespace, motor_id), model_number)
