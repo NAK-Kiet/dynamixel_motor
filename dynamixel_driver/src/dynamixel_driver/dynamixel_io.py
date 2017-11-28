@@ -111,7 +111,7 @@ class DynamixelIO(object):
         if self.readback_echo:
             self.ser.read(len(data))
 
-    def __read_response(self, servo_id, protocol):
+    def __read_response(self, servo_id, protocol = 1):
         data = []
         
         # Obsolete protocol 1.0, keeping it here just in case we need it in the future
@@ -149,7 +149,7 @@ class DynamixelIO(object):
 
         return data
 
-    def read(self, servo_id, address, size, protocol):
+    def read(self, servo_id, address, size, protocol = 1):
         """ Read "size" bytes of data from servo with "servo_id" starting at the
         register with "address". "address" is an integer between 0 and 57. It is
         recommended to use the constants in module dynamixel_const for readability.
@@ -200,7 +200,7 @@ class DynamixelIO(object):
 
         return data
 
-    def write(self, servo_id, address, data):
+    def write(self, servo_id, address, data, protocol = 1):
         """ Write the values from the "data" list to the servo with "servo_id"
         starting with data[0] at "address", continuing through data[n-1] at
         "address" + (n-1), where n = len(data). "address" is an integer between
@@ -213,7 +213,7 @@ class DynamixelIO(object):
         """
 
         # Obsolete protocol 1.0, keeping this here just in case
-        if (DXL_PROTOCOL == 1):
+        if (protocol == 1):
             # Number of bytes following standard header (0xFF, 0xFF, id, length)
             length = 3 + len(data)  # instruction, address, len(data), checksum
 
@@ -228,7 +228,7 @@ class DynamixelIO(object):
             packet.append(checksum)
 
         # Protocol 2.0 for later Dynamixel compatible
-        elif (DXL_PROTOCOL == 2):
+        elif (protocol == 2):
             # Packet length
             length = 5 + len(data) # instruction, 2byte address, len(data), 2byte CRC
 
@@ -259,7 +259,7 @@ class DynamixelIO(object):
 
         return data
 
-    def sync_write(self, address, data):
+    def sync_write(self, address, data, protocol = 1):
         """ Use Broadcast message to send multiple servos instructions at the
         same time. No "status packet" will be returned from any servos.
         "address" is an integer between 0 and 49. It is recommended to use the
@@ -274,7 +274,7 @@ class DynamixelIO(object):
         """
 
         # Obsolete protocol 1.0, keeping this here just in case
-        if (DXL_PROTOCOL == 1):
+        if (protocol == 1):
             # Calculate length and sum of all data
             flattened = [value for servo in data for value in servo]
 
@@ -291,7 +291,7 @@ class DynamixelIO(object):
             packet.append(checksum)
 
         # Protocol 2.0 for later Dynamixel compatible
-        elif (DXL_PROTOCOL == 2):
+        elif (protocol == 2):
              # Calculate length and sum of all data
             flattened = [value for servo in data for value in servo]
 
@@ -311,7 +311,7 @@ class DynamixelIO(object):
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
-    def ping(self, servo_id, protocol):
+    def ping(self, servo_id, protocol = 1):
         """ Ping the servo with "servo_id". This causes the servo to return a
         "status packet". This can tell us if the servo is attached and powered,
         and if so, if there are any errors.
@@ -662,11 +662,12 @@ class DynamixelIO(object):
         Speed can be negative only if the dynamixel is in "freespin" mode.
         """
 
-        # Packet to be sent out to the motors
+        # Packet to be sent out to the motors and motor type we are handling with
         packet = []
+        dxl_model = self.motors_model[servo_id]['Model number']
 
         # MX-28 old version or XL-320, nice consistency but different protocol, very nice
-        if (self.motors_model[servo_id] == 28) or (self.motors_model[servo_id] == 350):
+        if (dxl_model == 28) or (dxl_model == 350):
             # split speed into 2 bytes
             if speed >= 0:
                 loVal = int(speed & 0xFF)
@@ -678,7 +679,7 @@ class DynamixelIO(object):
                 packet.append((loVal, hiVal))
 
         # MX-28 new version, loving the consistency
-        if (self.motors_model[servo_id] == 30):
+        if (dxl_model == 30):
             # split speed into 4 bytes
             if speed >= 0:
                 speed1 = int(speed&0xFF)
@@ -694,8 +695,8 @@ class DynamixelIO(object):
                 packet.append((speed1, speed2, speed3, speed4))
 
         # set two register values with low and high byte for the speed
-        if (self.motors_model[servo_id] == 28) or (self.motors_model[servo_id] == 350): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
-        elif (self.motors_model[servo_id] == 30): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
+        if (dxl_model == 28) or (dxl_model == 350): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
+        elif (dxl_model == 30): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
         
         if response:
             self.exception_on_error(response[4], servo_id, 'setting moving speed to %d' % speed)
@@ -999,26 +1000,26 @@ class DynamixelIO(object):
         # Got model, return here
         return model
 
-    def get_firmware_version(self, servo_id):
+    def get_firmware_version(self, servo_id, protocol=1):
         """ Reads the servo's firmware version. """
-        response = self.read(servo_id, DXL_VERSION, 1)
+        response = self.read(servo_id, DXL_VERSION, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching firmware version')
         return response[5]
 
-    def get_return_delay_time(self, servo_id):
+    def get_return_delay_time(self, servo_id, protocol=1):
         """ Reads the servo's return delay time. """
-        response = self.read(servo_id, DXL_RETURN_DELAY_TIME, 1)
+        response = self.read(servo_id, DXL_RETURN_DELAY_TIME, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching return delay time')
         return response[5]
 
-    def get_angle_limits(self, servo_id):
+    def get_angle_limits(self, servo_id, protocol = 1):
         """
         Returns the min and max angle limits from the specified servo.
         """
         # read in 4 consecutive bytes starting with low value of clockwise angle limit
-        response = self.read(servo_id, DXL_CW_ANGLE_LIMIT_L, 4)
+        response = self.read(servo_id, DXL_CW_ANGLE_LIMIT_L, 4, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching CW/CCW angle limits')
         # extract data valus from the raw data
@@ -1035,13 +1036,22 @@ class DynamixelIO(object):
             self.exception_on_error(response[4], servo_id, 'fetching drive mode')
         return response[5]
 
-    def get_voltage_limits(self, servo_id):
+    def get_voltage_limits(self, servo_id, protocol = 1):
         """
         Returns the min and max voltage limits from the specified servo.
         """
-        response = self.read(servo_id, DXL_DOWN_LIMIT_VOLTAGE, 2)
+        # Empty response packet so we can request accordingly to motor models
+        response = []
+
+        # Again, we are having this thanks to the Dynamixel consistency
+        motor_model = self.motors_model[servo_id]['Model number']
+        if (motor_model == 28) or (motors_model == 12):
+            response = self.read(servo_id, DXL_DOWN_LIMIT_VOLTAGE, 2, protocol)
+        elif (motor_model == 350):
+            response = self.read(servo_id, 13, 2, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching voltage limits')
+
         # extract data valus from the raw data
         min_voltage = response[5] / 10.0
         max_voltage = response[6] / 10.0
@@ -1067,9 +1077,9 @@ class DynamixelIO(object):
             return 1023 - speed
         return speed
 
-    def get_voltage(self, servo_id):
+    def get_voltage(self, servo_id, protocol = 1):
         """ Reads the servo's voltage. """
-        response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1)
+        response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching supplied voltage')
         return response[5] / 10.0
@@ -1106,10 +1116,10 @@ class DynamixelIO(object):
 
         # Dictionary for return and motor model
         data_feedback = dict()
-        dxl_model = self.motors_model[servo_id]
+        dxl_model = self.motors_model[servo_id]['Model number']
 
-        # Fetching feedback for the older MX-28
-        if (dxl_model == 28):
+        # Fetching feedback for the older MX-28 and AX-12
+        if (dxl_model == 28) or (dxl_model == 12):
             # read in 17 consecutive bytes starting with low value for goal position
             response = self.read(servo_id, DXL_GOAL_POSITION_L, 17)
 
