@@ -168,14 +168,20 @@ class SerialProxy():
         self.motors = []
         self.motors_info = dict() # dictionary to store the motor models for each motor
         self.motor_static_info = {}
+
         
         # Pinging the motors across protocol 1 and 2
         for motor_id in range(self.min_motor_id, self.max_motor_id + 1):
             for protocol in range(1,3):
-                while(True):
+                # Number of trials to search for in each protocol before breaking out to another
+                pro_trial = 0
+
+                # Gives each protocol 5 trials, move on to the next one once trial reaches
+                while(pro_trial < 6):
                     try:
                         result = self.dxl_io.ping(motor_id, protocol)
                         # rospy.loginfo("Pinging motor %i", motor_id)
+                        pro_trial += 1
 
                     except Exception as ex:
                         rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
@@ -184,6 +190,7 @@ class SerialProxy():
                         rospy.sleep(0.1)
                         continue
                     
+                    # Break out now that we have got the reply from motor
                     if result:
                         rospy.loginfo("Got ping from motor %i!!!", motor_id)
                         self.motors.append(motor_id)
