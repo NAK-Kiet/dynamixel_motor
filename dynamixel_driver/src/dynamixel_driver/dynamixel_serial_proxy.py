@@ -268,8 +268,9 @@ class SerialProxy():
             # get current state of all motors and publish to motor_states topic
             motor_states = []
             for motor_id in self.motors:
+                protocol = self.motors_info[motor_id]['Protocol']
                 try:
-                    state = self.dxl_io.get_feedback(motor_id)
+                    state = self.dxl_io.get_feedback(motor_id, protocol)
                     if state:
                         motor_states.append(MotorState(**state))
                         if dynamixel_io.exception: raise dynamixel_io.exception

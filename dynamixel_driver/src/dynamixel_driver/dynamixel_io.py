@@ -1115,7 +1115,7 @@ class DynamixelIO(object):
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
 
 
-    def get_feedback(self, servo_id):
+    def get_feedback(self, servo_id, protocol = 1):
         """
         Returns the id, goal, position, error, speed, load, voltage, temperature
         and moving values from the specified servo.
@@ -1128,7 +1128,7 @@ class DynamixelIO(object):
         # Fetching feedback for the older MX-28 and AX-12
         if (dxl_model == 28) or (dxl_model == 12):
             # read in 17 consecutive bytes starting with low value for goal position
-            response = self.read(servo_id, DXL_GOAL_POSITION_L, 17)
+            response = self.read(servo_id, DXL_GOAL_POSITION_L, 17, protocol)
 
             if response:
                 self.exception_on_error(response[4], servo_id, 'fetching full servo status')
@@ -1162,7 +1162,7 @@ class DynamixelIO(object):
         # Fetching feedback for the MX-28 firmware version 41
         elif (dxl_model == 30):
             # read in 20 consectutive bytes starting from 116 to 136
-            response = self.read(servo_id, 116, 20)
+            response = self.read(servo_id, 116, 20, protocol)
 
             if response:
                 self.exception_on_error(response[8], servo_id, 'fetching full servo status')
@@ -1203,7 +1203,7 @@ class DynamixelIO(object):
         # Fetching feedback for the XL-320
         elif (dxl_model == 350):
             # read in 20 consecutive bytes starting from 30 to 50
-            response = self.read(servo_id, 30, 19)
+            response = self.read(servo_id, 30, 19, protocol)
 
             if response:
                 self.exception_on_error(response[8], servo_id, 'fetching full servo status')
