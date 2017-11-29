@@ -56,6 +56,9 @@ import rospy
 import dynamixel_io
 from dynamixel_driver.dynamixel_const import *
 
+# Standard boolean message to report init state
+from std_msgs.msg import Bool
+
 from diagnostic_msgs.msg import DiagnosticArray
 from diagnostic_msgs.msg import DiagnosticStatus
 from diagnostic_msgs.msg import KeyValue
@@ -90,10 +93,15 @@ class SerialProxy():
         self.error_counts = {'non_fatal': 0, 'checksum': 0, 'dropped': 0}
         self.current_state = MotorStateList()
         self.num_ping_retries = 5
+        # Not sure why the author put this in here, it messed up a lot of stuff along the line,
+        # as the user is supposed to state the min/max motors already
         
         self.motor_states_pub = rospy.Publisher('motor_states/%s' % self.port_namespace, MotorStateList, queue_size=1)
         self.diagnostics_pub = rospy.Publisher('/diagnostics', DiagnosticArray, queue_size=1)
 
+        # Publisher to declare whether all motors communication has been established
+        self.done_init_pub = rospy.Publisher('/done_init', Bool, queue_size = 1)
+        
     def connect(self):
         try:
             self.dxl_io = dynamixel_io.DynamixelIO(self.port_name, self.baud_rate, self.readback_echo)
@@ -109,14 +117,14 @@ class SerialProxy():
     def disconnect(self):
         self.running = False
 
-    def __fill_motor_parameters(self, motor_id, model_number):
+    def __fill_motor_parameters(self, motor_id, model_number, protocol = 1):
         """
         Stores some extra information about each motor on the parameter server.
         Some of these paramters are used in joint controller implementation.
         """
-        angles = self.dxl_io.get_angle_limits(motor_id)
-        voltage = self.dxl_io.get_voltage(motor_id)
-        voltages = self.dxl_io.get_voltage_limits(motor_id)
+        angles = self.dxl_io.get_angle_limits(motor_id, protocol)
+        voltage = self.dxl_io.get_voltage(motor_id, protocol) 
+        voltages = self.dxl_io.get_voltage_limits(motor_id, protocol)
         
         rospy.set_param('dynamixel/%s/%d/model_number' %(self.port_namespace, motor_id), model_number)
         rospy.set_param('dynamixel/%s/%d/model_name' %(self.port_namespace, motor_id), DXL_MODEL_TO_PARAMS[model_number]['name'])
@@ -147,8 +155,8 @@ class SerialProxy():
         # keep some parameters around for diagnostics
         self.motor_static_info[motor_id] = {}
         self.motor_static_info[motor_id]['model'] = DXL_MODEL_TO_PARAMS[model_number]['name']
-        self.motor_static_info[motor_id]['firmware'] = self.dxl_io.get_firmware_version(motor_id)
-        self.motor_static_info[motor_id]['delay'] = self.dxl_io.get_return_delay_time(motor_id)
+        self.motor_static_info[motor_id]['firmware'] = self.dxl_io.get_firmware_version(motor_id, protocol)
+        self.motor_static_info[motor_id]['delay'] = self.dxl_io.get_return_delay_time(motor_id, protocol)
         self.motor_static_info[motor_id]['min_angle'] = angles['min']
         self.motor_static_info[motor_id]['max_angle'] = angles['max']
         self.motor_static_info[motor_id]['min_voltage'] = voltages['min']
@@ -157,19 +165,39 @@ class SerialProxy():
     def __find_motors(self):
         rospy.loginfo('%s: Pinging motor IDs %d through %d...' % (self.port_namespace, self.min_motor_id, self.max_motor_id))
         self.motors = []
+        self.motors_info = dict() # dictionary to store the motor models for each motor
         self.motor_static_info = {}
+
         
+        # Pinging the motors across protocol 1 and 2
         for motor_id in range(self.min_motor_id, self.max_motor_id + 1):
-            for trial in range(self.num_ping_retries):
-                try:
-                    result = self.dxl_io.ping(motor_id)
-                except Exception as ex:
-                    rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
-                    continue
+            for protocol in range(1,3):
+                # Number of trials to search for in each protocol before breaking out to another
+                pro_trial = 0
+
+                # Gives each protocol 5 trials, move on to the next one once trial reaches
+                while(pro_trial < 6):
+                    try:
+                        result = self.dxl_io.ping(motor_id, protocol)
+                        # rospy.loginfo("Pinging motor %i", motor_id)
+                        pro_trial += 1
+
+                    except Exception as ex:
+                        rospy.logerr('Exception thrown while pinging motor %d - %s' % (motor_id, ex))
+                        
+                        # Now that we have encountered an error, wait a bit for the UART channel to clear out
+                        rospy.sleep(0.1)
+                        continue
                     
-                if result:
-                    self.motors.append(motor_id)
-                    break
+                    # Break out now that we have got the reply from motor
+                    if result:
+                        rospy.loginfo("Got ping from motor %i!!!", motor_id)
+                        self.motors.append(motor_id)
+                        self.motors_info[motor_id] = {'Protocol': protocol}
+                        break
+
+                # Now if we have already got the correct protocol, break out of the loop
+                if self.motors_info.get(motor_id, False): break
                     
         if not self.motors:
             rospy.logfatal('%s: No motors found.' % self.port_namespace)
@@ -177,23 +205,42 @@ class SerialProxy():
             
         counts = defaultdict(int)
         
-        to_delete_if_error = []
+        # Since we are having different motors, let's find all of the motors first and export them into the dxlIO class
         for motor_id in self.motors:
-            for trial in range(self.num_ping_retries):
+            motor_protocol = self.motors_info[motor_id]['Protocol']
+            while(True):
                 try:
-                    model_number = self.dxl_io.get_model_number(motor_id)
-                    self.__fill_motor_parameters(motor_id, model_number)
+                    model_number = self.dxl_io.get_model_number(motor_id, motor_protocol)
+                    self.motors_info[motor_id]['Model number'] = model_number
+                    rospy.loginfo("Getting model number for motor %i", motor_id)
                 except Exception as ex:
-                    rospy.logerr('Exception thrown while getting attributes for motor %d - %s' % (motor_id, ex))
-                    if trial == self.num_ping_retries - 1: to_delete_if_error.append(motor_id)
+                    rospy.logerr('Exception thrown while getting model number for motor %d - %s' % (motor_id, ex))
+
+                    # Now that we have encountered an error, wait a bit for the UART channel to clear out
+                    rospy.sleep(0.5)
                     continue
+            
                     
+                rospy.loginfo("The model of motor %i is %s", motor_id, DXL_MODEL_TO_PARAMS[model_number]['name'])
                 counts[model_number] += 1
                 break
-                
-        for motor_id in to_delete_if_error:
-            self.motors.remove(motor_id)
-            
+        self.dxl_io.import_motors_model(self.motors_info)
+        
+        # Then fill out the motor parameters, since we need to know the motors model because the addresses can be different across motors
+        for motor_id in self.motors:
+            motor_protocol = self.motors_info[motor_id]['Protocol']
+            while(True):
+                try:
+                    self.__fill_motor_parameters(motor_id, model_number, motor_protocol)
+                    rospy.loginfo("Filling params for motor %i", motor_id)
+                except Exception as ex:
+                    rospy.logerr('Exception thrown while getting attributes for motor %d - %s' % (motor_id, ex))
+
+                    # Now that we have encountered an error, wait a bit for the UART channel to clear out
+                    rospy.sleep(0.5)
+                    continue
+                break
+
         rospy.set_param('dynamixel/%s/connected_ids' % self.port_namespace, self.motors)
         
         status_str = '%s: Found %d motors - ' % (self.port_namespace, len(self.motors))
@@ -207,7 +254,8 @@ class SerialProxy():
                         status_str += '%d, ' % motor_id
                         
                 status_str = status_str[:-2] + '], '
-                
+        
+        # Print out to terminal
         rospy.loginfo('%s, initialization complete.' % status_str[:-2])
 
     def __update_motor_states(self):
@@ -220,8 +268,9 @@ class SerialProxy():
             # get current state of all motors and publish to motor_states topic
             motor_states = []
             for motor_id in self.motors:
+                protocol = self.motors_info[motor_id]['Protocol']
                 try:
-                    state = self.dxl_io.get_feedback(motor_id)
+                    state = self.dxl_io.get_feedback(motor_id, protocol)
                     if state:
                         motor_states.append(MotorState(**state))
                         if dynamixel_io.exception: raise dynamixel_io.exception

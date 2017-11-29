@@ -52,6 +52,7 @@ from dynamixel_controllers.srv import StartController
 from dynamixel_controllers.srv import StopController
 from dynamixel_controllers.srv import RestartController
 
+from std_msgs.msg import Bool
 
 parser = OptionParser()
 
@@ -95,6 +96,10 @@ def manage_controller(controller_name, port_namespace, controller_type, command,
 
 if __name__ == '__main__':
     try:
+
+        # Create a publisher here just so we can publish to it once the controllers are done spawning
+        done_pub = rospy.Publisher('controller_spawner_done_init', Bool, queue_size=4)
+
         rospy.init_node('controller_spawner', anonymous=True)
         
         parser.add_option('-m', '--manager', metavar='MANAGER',
@@ -116,7 +121,7 @@ if __name__ == '__main__':
         controller_type = options.type
         command = options.command
         joint_controllers = args
-        
+
         if controller_type == 'meta': port_namespace = 'meta'
         
         start_service_name = '%s/%s/start_controller' % (manager_namespace, port_namespace)
@@ -143,5 +148,8 @@ if __name__ == '__main__':
             controller_name = joint_controllers[0]
             dependencies = joint_controllers[1:]
             manage_controller(controller_name, port_namespace, controller_type, command, dependencies, start_controller, stop_controller, restart_controller)
+
+        # Brief delay before alerting to some topic that the motors have started cleanly
+        done_pub.publish(True)
     except rospy.ROSInterruptException: pass
 
