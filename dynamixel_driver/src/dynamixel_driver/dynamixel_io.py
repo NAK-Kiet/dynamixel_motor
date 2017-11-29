@@ -307,7 +307,6 @@ class DynamixelIO(object):
 
         # Convert and send out message to motors
         packetStr = array('B', packet).tostring() # packetStr = ''.join([chr(byte) for byte in packet])
-        print packet
         with self.serial_mutex:
             self.__write_serial(packetStr)
 
@@ -870,21 +869,24 @@ class DynamixelIO(object):
         set_multi_position( ( (id1, position1), (id2, position2), (id3, position3) ) )
         """
         
-        # prepare value tuples for call to syncwrite and get the motor model
-        # writeableVals = []
+        # Prepare different packets to send to each respective protocol
+        pack_pro1 = []
+        pack_pro2 = []
 
+        # Iterate through our tuples and prepare some basic info first
         for vals in valueTuples:
             sid = vals[0]
             position = vals[1]
-            dxl_model = self.motors_model[sid]
+            protocol = self.motors_model[sid]['Protocol']
+            dxl_model = self.motors_model[sid]['Model number']
 
             # MX-28 old version or XL-320, man the consistency here is awesome
-            if (dxl_model == 28) or (dxl_model == 350):
+            if (dxl_model == 28) or (dxl_model == 350) or (dxl_model == 12):
                 # split position into 2 bytes
                 loVal = int(position % 256)
                 hiVal = int(position >> 8)
-                # writeableVals.append( (sid, loVal, hiVal) )
-                self.write(sid, DXL_GOAL_POSITION_L, (loVal, hiVal))
+                if (protocol == 1): pack_pro1.append((sid, loVal, hiVal))
+                elif (protocol == 2): pack_pro2.append((sid, loVal, hiVal))
 
             # MX-28 new version
             elif (dxl_model == 30):
@@ -893,14 +895,17 @@ class DynamixelIO(object):
                 pos2 = int((position>>8)&0xFF)
                 pos3 = int((position>>16)&0xFF)
                 pos4 = int((position>>24)&0xFF)
-                # writeableVals.append( (sid, pos1, pos2, pos3, pos4))
-                self.write(sid, 116, (pos1, pos2, pos3, pos4))
+                if (protocol == 1): pack_pro1.append((sid, pos1, pos2, pos3, pos4))
+                elif (protocol == 2): pack_pro2.append((sid, pos1, pos2, pos3, pos4))
 
-
-        # use sync write to broadcast multi servo message
-        # if (dxl_model == 30): self.sync_write(116, writeableVals)
-        # elif (dxl_model == 28) or (dxl_model == 350): self.sync_write(DXL_GOAL_POSITION_L, writeableVals)
-
+        # use sync write to broadcast multi servo message, send out each protocol packet accordingly
+        if (dxl_model == 30): 
+            if (pack_pro1): self.sync_write(116, pack_pro1, 1)
+            if (pack_pro2): self.sync_write(116, pack_pro2, 2)
+        elif (dxl_model == 28) or (dxl_model == 350) or (dxl_model == 12): 
+            if (pack_pro1): self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
+            if (pack_pro2): self.sync_write(DXL_GOAL_POSITION_L, pack_pro2, 2)
+            
     def set_multi_speed(self, valueTuples):
         """
         Set different speeds for multiple servos.
@@ -1045,7 +1050,7 @@ class DynamixelIO(object):
 
         # Again, we are having this thanks to the Dynamixel consistency
         motor_model = self.motors_model[servo_id]['Model number']
-        if (motor_model == 28) or (motors_model == 12):
+        if (motor_model == 28) or (motor_model == 12):
             response = self.read(servo_id, DXL_DOWN_LIMIT_VOLTAGE, 2, protocol)
         elif (motor_model == 350):
             response = self.read(servo_id, 13, 2, protocol)
@@ -1079,7 +1084,15 @@ class DynamixelIO(object):
 
     def get_voltage(self, servo_id, protocol = 1):
         """ Reads the servo's voltage. """
-        response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1, protocol)
+        # Empty response packet so we can request accordingly to motor models
+        response = []
+
+        # Consistency issues, who would have guessed
+        motor_model = self.motors_model[servo_id]['Model number']
+        if (motor_model == 28) or (motor_model == 12):
+            response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1, protocol)
+        elif (motor_model == 350):
+            response = self.read(servo_id, 45, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching supplied voltage')
         return response[5] / 10.0
@@ -1108,7 +1121,11 @@ class DynamixelIO(object):
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
 
 
+<<<<<<< HEAD
     def get_feedback(self, servo_id, protocol):
+=======
+    def get_feedback(self, servo_id, protocol = 1):
+>>>>>>> db8fb8c1fae22b62c81f64fadd9c997146367d12
         """
         Returns the id, goal, position, error, speed, load, voltage, temperature
         and moving values from the specified servo.
