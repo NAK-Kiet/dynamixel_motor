@@ -1122,7 +1122,11 @@ class DynamixelIO(object):
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     def get_feedback(self, servo_id, protocol):
+=======
+    def get_feedback(self, servo_id, protocol = 1):
+>>>>>>> db8fb8c1fae22b62c81f64fadd9c997146367d12
 =======
     def get_feedback(self, servo_id, protocol = 1):
 >>>>>>> db8fb8c1fae22b62c81f64fadd9c997146367d12
