@@ -899,12 +899,20 @@ class DynamixelIO(object):
                 elif (protocol == 2): pack_pro2.append((sid, pos1, pos2, pos3, pos4))
 
         # use sync write to broadcast multi servo message, send out each protocol packet accordingly
-        if (dxl_model == 30): 
-            if (pack_pro1): self.sync_write(116, pack_pro1, 1)
-            if (pack_pro2): self.sync_write(116, pack_pro2, 2)
-        elif (dxl_model == 29) or (dxl_model == 350) or (dxl_model == 12): 
-            if (pack_pro1): self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
-            if (pack_pro2): self.sync_write(DXL_GOAL_POSITION_L, pack_pro2, 2)
+        # if (dxl_model == 30): 
+        #     if (pack_pro1): 
+        #         self.sync_write(116, pack_pro1, 1)
+        #         time.sleep(0.001)
+        #     if (pack_pro2): 
+        #         self.sync_write(116, pack_pro2, 2)
+        #         time.sleep(0.001)
+        # elif (dxl_model == 29) or (dxl_model == 350) or (dxl_model == 12): 
+        if (pack_pro1): 
+            self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
+            time.sleep(0.001)
+        if (pack_pro2): 
+            self.sync_write(DXL_GOAL_POSITION_L, pack_pro2, 2)
+            time.sleep(0.001)
             
     def set_multi_speed(self, valueTuples):
         """
@@ -1010,14 +1018,16 @@ class DynamixelIO(object):
         response = self.read(servo_id, DXL_VERSION, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching firmware version')
-        return response[5]
+        if (protocol == 1): return response[5]
+        elif (protocol == 2): return response[9]
 
     def get_return_delay_time(self, servo_id, protocol=1):
         """ Reads the servo's return delay time. """
         response = self.read(servo_id, DXL_RETURN_DELAY_TIME, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching return delay time')
-        return response[5]
+        if (protocol == 1): return response[5]
+        elif (protocol == 2): return response[9]
 
     def get_angle_limits(self, servo_id, protocol = 1):
         """
@@ -1027,7 +1037,6 @@ class DynamixelIO(object):
         response = self.read(servo_id, DXL_CW_ANGLE_LIMIT_L, 4, protocol)
         cwLimit = 0.0
         ccwLimit = 0.0
-
 
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching CW/CCW angle limits')
@@ -1139,7 +1148,6 @@ class DynamixelIO(object):
 
         else:
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
-
 
     def get_feedback(self, servo_id, protocol):
         """
