@@ -666,7 +666,7 @@ class DynamixelIO(object):
         dxl_model = self.motors_model[servo_id]['Model number']
 
         # MX-28 old version or XL-320, nice consistency but different protocol, very nice
-        if (dxl_model == 28) or (dxl_model == 350):
+        if (dxl_model == 29) or (dxl_model == 350):
             # split speed into 2 bytes
             if speed >= 0:
                 loVal = int(speed & 0xFF)
@@ -694,7 +694,7 @@ class DynamixelIO(object):
                 packet.append((speed1, speed2, speed3, speed4))
 
         # set two register values with low and high byte for the speed
-        if (dxl_model == 28) or (dxl_model == 350): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
+        if (dxl_model == 29) or (dxl_model == 350): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
         elif (dxl_model == 30): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
         
         if response:
@@ -881,7 +881,7 @@ class DynamixelIO(object):
             dxl_model = self.motors_model[sid]['Model number']
 
             # MX-28 old version or XL-320, man the consistency here is awesome
-            if (dxl_model == 28) or (dxl_model == 350) or (dxl_model == 12):
+            if (dxl_model == 29) or (dxl_model == 350) or (dxl_model == 12):
                 # split position into 2 bytes
                 loVal = int(position % 256)
                 hiVal = int(position >> 8)
@@ -902,7 +902,7 @@ class DynamixelIO(object):
         if (dxl_model == 30): 
             if (pack_pro1): self.sync_write(116, pack_pro1, 1)
             if (pack_pro2): self.sync_write(116, pack_pro2, 2)
-        elif (dxl_model == 28) or (dxl_model == 350) or (dxl_model == 12): 
+        elif (dxl_model == 29) or (dxl_model == 350) or (dxl_model == 12): 
             if (pack_pro1): self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
             if (pack_pro2): self.sync_write(DXL_GOAL_POSITION_L, pack_pro2, 2)
             
@@ -1025,11 +1025,20 @@ class DynamixelIO(object):
         """
         # read in 4 consecutive bytes starting with low value of clockwise angle limit
         response = self.read(servo_id, DXL_CW_ANGLE_LIMIT_L, 4, protocol)
+        cwLimit = 0.0
+        ccwLimit = 0.0
+
+
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching CW/CCW angle limits')
-        # extract data valus from the raw data
-        cwLimit = response[5] + (response[6] << 8)
-        ccwLimit = response[7] + (response[8] << 8)
+        
+        # extract data valus from the raw data depending on the protocol used
+        if (protocol == 1):
+            cwLimit = response[5] + (response[6] << 8)
+            ccwLimit = response[7] + (response[8] << 8)
+        elif (protocol == 2):
+            cwLimit = response[9] + (response[10] << 8)
+            ccwLimit = response[11] + (response[12] << 8)
 
         # return the data in a dictionary
         return {'min':cwLimit, 'max':ccwLimit}
@@ -1047,19 +1056,25 @@ class DynamixelIO(object):
         """
         # Empty response packet so we can request accordingly to motor models
         response = []
+        min_voltage = 0.0
+        max_voltage = 0.0
 
         # Again, we are having this thanks to the Dynamixel consistency
         motor_model = self.motors_model[servo_id]['Model number']
-        if (motor_model == 28) or (motor_model == 12):
+        if (motor_model == 29) or (motor_model == 12):
             response = self.read(servo_id, DXL_DOWN_LIMIT_VOLTAGE, 2, protocol)
         elif (motor_model == 350):
             response = self.read(servo_id, 13, 2, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching voltage limits')
 
-        # extract data valus from the raw data
-        min_voltage = response[5] / 10.0
-        max_voltage = response[6] / 10.0
+        # extract data valus from the raw data, depending on different protocol
+        if (protocol == 1):
+            min_voltage = response[5] / 10.0
+            max_voltage = response[6] / 10.0
+        elif (protocol == 2):
+            min_voltage = response[9] / 10.0
+            max_voltage = response[10] / 10.0
 
         # return the data in a dictionary
         return {'min':min_voltage, 'max':max_voltage}
@@ -1089,13 +1104,18 @@ class DynamixelIO(object):
 
         # Consistency issues, who would have guessed
         motor_model = self.motors_model[servo_id]['Model number']
-        if (motor_model == 28) or (motor_model == 12):
+        if (motor_model == 29) or (motor_model == 12):
             response = self.read(servo_id, DXL_PRESENT_VOLTAGE, 1, protocol)
         elif (motor_model == 350):
             response = self.read(servo_id, 45, 1, protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'fetching supplied voltage')
-        return response[5] / 10.0
+
+        if (protocol == 1):
+            return response[5] / 10.0
+        elif (protocol == 2):
+            return response[9] / 10.0
+        else: self.exception_on_error("Incorrect protocol:", protocol)
 
     def get_current(self, servo_id):
         """ Reads the servo's current consumption (if supported by model) """
@@ -1121,15 +1141,7 @@ class DynamixelIO(object):
             raise UnsupportedFeatureError(model, DXL_CURRENT_L)
 
 
-<<<<<<< HEAD
-<<<<<<< HEAD
     def get_feedback(self, servo_id, protocol):
-=======
-    def get_feedback(self, servo_id, protocol = 1):
->>>>>>> db8fb8c1fae22b62c81f64fadd9c997146367d12
-=======
-    def get_feedback(self, servo_id, protocol = 1):
->>>>>>> db8fb8c1fae22b62c81f64fadd9c997146367d12
         """
         Returns the id, goal, position, error, speed, load, voltage, temperature
         and moving values from the specified servo.
@@ -1140,7 +1152,7 @@ class DynamixelIO(object):
         dxl_model = self.motors_model[servo_id]['Model number']
 
         # Fetching feedback for the older MX-28 and AX-12
-        if (dxl_model == 28) or (dxl_model == 12):
+        if (dxl_model == 29) or (dxl_model == 12):
             # read in 17 consecutive bytes starting with low value for goal position
             response = self.read(servo_id, DXL_GOAL_POSITION_L, 17, protocol)
 
