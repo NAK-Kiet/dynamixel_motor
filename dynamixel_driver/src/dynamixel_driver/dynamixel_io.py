@@ -884,23 +884,11 @@ class DynamixelIO(object):
             protocol = self.motors_model[sid]['Protocol']
             dxl_model = self.motors_model[sid]['Model number']
 
-            # MX-28 old version or XL-320, man the consistency here is awesome
-            if (dxl_model == 29) or (dxl_model == 350) or (dxl_model == 12):
-                # split position into 2 bytes
-                loVal = int(position % 256)
-                hiVal = int(position >> 8)
-                if (protocol == 1): pack_pro1.append((sid, loVal, hiVal))
-                elif (protocol == 2): pack_pro2.append((sid, loVal, hiVal))
-
-            # MX-28 new version
-            elif (dxl_model == 30):
-                # split position into 4 bytes, thank you Dynamixel for the consistency
-                pos1 = int(position&0xFF)
-                pos2 = int((position>>8)&0xFF)
-                pos3 = int((position>>16)&0xFF)
-                pos4 = int((position>>24)&0xFF)
-                if (protocol == 1): pack_pro1.append((sid, pos1, pos2, pos3, pos4))
-                elif (protocol == 2): pack_pro2.append((sid, pos1, pos2, pos3, pos4))
+            # split position into 2 bytes
+            loVal = int(position % 256)
+            hiVal = int(position >> 8)
+            if (protocol == 1): pack_pro1.append((sid, loVal, hiVal))
+            elif (protocol == 2): pack_pro2.append((sid, loVal, hiVal))
 
         # use sync write to broadcast multi servo message, send out each protocol packet accordingly
         if (pack_pro1): self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
@@ -912,12 +900,16 @@ class DynamixelIO(object):
         Should be called as such:
         set_multi_speed( ( (id1, speed1), (id2, speed2), (id3, speed3) ) )
         """
-        # prepare value tuples for call to syncwrite
-        writeableVals = []
+        # Prepare different packets to send to each respective protocol
+        pack_pro1 = []
+        pack_pro2 = []
 
+        # Iterate through our tuples and prepare some basic info first
         for vals in valueTuples:
             sid = vals[0]
-            speed = vals[1]
+            position = vals[1]
+            protocol = self.motors_model[sid]['Protocol']
+            dxl_model = self.motors_model[sid]['Model number']
 
             # split speed into 2 bytes
             if speed >= 0:
@@ -927,10 +919,12 @@ class DynamixelIO(object):
                 loVal = int((1023 - speed) % 256)
                 hiVal = int((1023 - speed) >> 8)
 
-            writeableVals.append( (sid, loVal, hiVal) )
+            if (protocol == 1): pack_pro1.append((sid, loVal, hiVal))
+            elif (protocol == 2): pack_pro2.append((sid, loVal, hiVal))
 
         # use sync write to broadcast multi servo message
-        self.sync_write(DXL_GOAL_SPEED_L, writeableVals)
+        if (pack_pro1): self.sync_write(DXL_GOAL_SPEED_L, pack_pro1, 1)
+        if (pack_pro2): self.sync_write(DXL_GOAL_SPEED_L, pack_pro2, 2)
 
     def set_multi_torque_limit(self, valueTuples):
         """
