@@ -133,7 +133,7 @@ class DynamixelIO(object):
             try:
                 # Start with checking the package prefix first
                 data.extend(self.ser.read(7))
-                if data[0:4] != ['\xff', '\xff', '\xfd', '\x00']: raise Exception('Wrong packet prefex %s from motor %d' % (data[0:3], servo_id))
+                if data[0:4] != ['\xff', '\xff', '\xfd', '\x00']: raise Exception('Wrong packet prefix %s from motor %d' % (data[0:3], servo_id))
 
                 # Prefix looks good, continue to fetch the rest of our data
                 length = ord(data[5]) + (ord(data[6]) << 8)
@@ -234,13 +234,14 @@ class DynamixelIO(object):
 
             # Building the packet
             # packet: (0xFF 0xFF 0xFD 0x00) ID (LEN_L LEN_H) INSTRUCTION (ADDR_L ADDR_H) (DATA_0 DATA_1 DATA_2 DATA_3) (CRC_L CRC_H)
-            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, length&0xFF, (length>>8)&0xFF, DXL_READ_DATA, address&0xFF, (address>>8)&0xFF]
+            packet = [0xFF, 0xFF, 0xFD, 0x00, servo_id, length&0xFF, (length>>8)&0xFF, DXL_WRITE_DATA, address&0xFF, (address>>8)&0xFF]
+            packet.extend(data)
 
             # Calculating the checksum from the packet above
             checksum = self.__gen_crc16(packet)
 
-            # Appending the data and checksum at the end
-            packet.extend(data)
+            # # Very important note here: unlike the old checksum, protocol 2.0 checksum needs to
+            # be calculated last, after everything has been put together
             packet.append(checksum&0xFF)
             packet.append((checksum>>8)&0xFF)
 
@@ -254,7 +255,7 @@ class DynamixelIO(object):
             time.sleep(0.0013)
 
             # read response
-            data = self.__read_response(servo_id)
+            data = self.__read_response(servo_id, protocol)
             data.append(timestamp)
 
         return data
@@ -296,12 +297,15 @@ class DynamixelIO(object):
             flattened = [value for servo in data for value in servo]
 
             # Number of bytes following standard header (instruction, 2byte address, 2byte len, 2byte checksum) plus data
-            length = 5 + len(flattened)
+            length = 7 + len(flattened)
 
             # packet: FF FF FD 00 ID LEN_L LEN_H INSTRUCTION PARAM_1... CRC_L CRC_H
             packet = [0xFF, 0xFF, 0xFD, 0x00, DXL_BROADCAST, (length&0xFF), ((length>>8)&0xFF), DXL_SYNC_WRITE, (address&0xFF), ((address>>8)&0xFF), len(data[0][1:])&0xFF, (len(data[0][1:])>>8)&0xFF]
-            checksum = self.__gen_crc16(packet)
             packet.extend(flattened)
+
+            # Very important note here: unlike the old checksum, protocol 2.0 checksum needs to
+            # be calculated last, after everything has been put together
+            checksum = self.__gen_crc16(packet)
             packet.append(checksum&0xFF)
             packet.append((checksum>>8)&0xFF)
 
@@ -899,20 +903,8 @@ class DynamixelIO(object):
                 elif (protocol == 2): pack_pro2.append((sid, pos1, pos2, pos3, pos4))
 
         # use sync write to broadcast multi servo message, send out each protocol packet accordingly
-        # if (dxl_model == 30): 
-        #     if (pack_pro1): 
-        #         self.sync_write(116, pack_pro1, 1)
-        #         time.sleep(0.001)
-        #     if (pack_pro2): 
-        #         self.sync_write(116, pack_pro2, 2)
-        #         time.sleep(0.001)
-        # elif (dxl_model == 29) or (dxl_model == 350) or (dxl_model == 12): 
-        if (pack_pro1): 
-            self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
-            time.sleep(0.001)
-        if (pack_pro2): 
-            self.sync_write(DXL_GOAL_POSITION_L, pack_pro2, 2)
-            time.sleep(0.001)
+        if (pack_pro1): self.sync_write(DXL_GOAL_POSITION_L, pack_pro1, 1)
+        if (pack_pro2): self.sync_write(DXL_GOAL_POSITION_L, pack_pro2, 2)
             
     def set_multi_speed(self, valueTuples):
         """
