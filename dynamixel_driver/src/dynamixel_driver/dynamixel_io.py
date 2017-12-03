@@ -679,7 +679,6 @@ class DynamixelIO(object):
 
         # set two register values with low and high byte for the speed
         response = self.write(servo_id, DXL_GOAL_SPEED_L, (loVal, hiVal), protocol)
-        print response
         if response:
             self.exception_on_error(response[4], servo_id, 'setting moving speed to %d' % speed)
         return response
