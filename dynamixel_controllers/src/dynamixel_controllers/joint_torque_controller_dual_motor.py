@@ -122,9 +122,10 @@ class JointTorqueControllerDualMotor(JointController):
         elif speed > self.joint_max_speed: speed = self.joint_max_speed
         self.last_commanded_torque = speed
         speed_raw = int(round(speed / self.VELOCITY_PER_TICK))
-        mcv_master = (self.master_id, speed_raw)
-        mcv_slave = (self.slave_id, -mcv_master[1])
-        self.dxl_io.set_multi_speed([mcv_master, mcv_slave])
+        self.dxl_io.set_speed(self.master_id, speed_raw)
+        # mcv_master = (self.master_id, speed_raw)
+        # mcv_slave = (self.slave_id, -mcv_master[1])
+        # self.dxl_io.set_multi_speed([mcv_master, mcv_slave])
 
 
     def set_compliance_slope(self, slope):

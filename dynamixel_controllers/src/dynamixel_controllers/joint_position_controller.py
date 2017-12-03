@@ -130,7 +130,9 @@ class JointPositionController(JointController):
 
     def set_speed(self, speed):
         mcv = (self.motor_id, self.spd_rad_to_raw(speed))
-        self.dxl_io.set_multi_speed([mcv])
+        self.dxl_io.set_speed(self.motor_id, self.spd_rad_to_raw(speed))
+        # Synchronized call is unnecessary for the current design
+        # self.dxl_io.set_multi_speed([mcv])
 
     def set_compliance_slope(self, slope):
         if slope < DXL_MIN_COMPLIANCE_SLOPE: slope = DXL_MIN_COMPLIANCE_SLOPE
@@ -182,6 +184,8 @@ class JointPositionController(JointController):
 
     def process_command(self, msg):
         angle = msg.data
-        mcv = (self.motor_id, self.pos_rad_to_raw(angle))
-        self.dxl_io.set_multi_position([mcv])
+        self.dxl_io.set_position(self.motor_id, self.pos_rad_to_raw(angle))
+        # Same here too
+        # mcv = (self.motor_id, self.pos_rad_to_raw(angle))
+        # self.dxl_io.set_multi_position([mcv])
 

@@ -651,10 +651,11 @@ class DynamixelIO(object):
         Set the servo with servo_id to the specified goal position.
         Position value must be positive.
         """
+        protocol = self.motors_model[servo_id]['Protocol']
         loVal = int(position % 256)
         hiVal = int(position >> 8)
 
-        response = self.write(servo_id, DXL_GOAL_POSITION_L, (loVal, hiVal))
+        response = self.write(servo_id, DXL_GOAL_POSITION_L, (loVal, hiVal), protocol)
         if response:
             self.exception_on_error(response[4], servo_id, 'setting goal position to %d' % position)
         return response
@@ -666,41 +667,19 @@ class DynamixelIO(object):
         """
 
         # Packet to be sent out to the motors and motor type we are handling with
-        packet = []
-        dxl_model = self.motors_model[servo_id]['Model number']
+        protocol = self.motors_model[servo_id]['Protocol']
 
-        # MX-28 old version or XL-320, nice consistency but different protocol, very nice
-        if (dxl_model == 29) or (dxl_model == 350):
-            # split speed into 2 bytes
-            if speed >= 0:
-                loVal = int(speed & 0xFF)
-                hiVal = int(speed >> 8)
-                packet.append((loVal, hiVal))
-            else:
-                loVal = int((1023 - speed) & 0xFF)
-                hiVal = int((1023 - speed) >> 8)
-                packet.append((loVal, hiVal))
-
-        # MX-28 new version, loving the consistency
-        if (dxl_model == 30):
-            # split speed into 4 bytes
-            if speed >= 0:
-                speed1 = int(speed&0xFF)
-                speed2 = int((speed>>8)&0xFF)
-                speed3 = int((speed>>16)&0xFF)
-                speed4 = int((speed>>24)&0xFF)
-                packet.append((speed1, speed2, speed3, speed4))
-            else:
-                speed1 = int((1023 - speed)&0xFF)
-                speed2 = int(((1023 - speed)>>8)&0xFF)
-                speed3 = int(((1023 - speed)>>16)&0xFF)
-                speed4 = int(((1023 - speed)>>24)&0xFF)
-                packet.append((speed1, speed2, speed3, speed4))
+        # split speed into 2 bytes
+        if speed >= 0:
+            loVal = int(speed & 0xFF)
+            hiVal = int(speed >> 8)
+        else:
+            loVal = int((1023 - speed) & 0xFF)
+            hiVal = int((1023 - speed) >> 8)
 
         # set two register values with low and high byte for the speed
-        if (dxl_model == 29) or (dxl_model == 350): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
-        elif (dxl_model == 30): response = self.write(servo_id, DXL_GOAL_SPEED_L, packet)
-        
+        response = self.write(servo_id, DXL_GOAL_SPEED_L, (loVal, hiVal), protocol)
+        print response
         if response:
             self.exception_on_error(response[4], servo_id, 'setting moving speed to %d' % speed)
         return response
@@ -907,7 +886,7 @@ class DynamixelIO(object):
         # Iterate through our tuples and prepare some basic info first
         for vals in valueTuples:
             sid = vals[0]
-            position = vals[1]
+            speed = vals[1]
             protocol = self.motors_model[sid]['Protocol']
             dxl_model = self.motors_model[sid]['Model number']
 
