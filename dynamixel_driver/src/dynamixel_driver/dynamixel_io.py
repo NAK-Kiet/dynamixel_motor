@@ -48,7 +48,7 @@ from array import array
 from binascii import b2a_hex
 from threading import Lock
 
-from dynamixel_const import *
+from dynamixel_driver.dynamixel_const import *
 
 exception = None
 
@@ -121,7 +121,7 @@ class DynamixelIO(object):
                 if not data[0:2] == ['\xff', '\xff']: raise Exception('Wrong packet prefix %s' % data[0:2])
                 data.extend(self.ser.read(ord(data[3])))
                 data = array('B', ''.join(data)).tolist() # [int(b2a_hex(byte), 16) for byte in data]
-            except Exception, e:
+            except Exception as e:
                 raise DroppedPacketError('Invalid response received from motor %d. %s' % (servo_id, e))
             checksum = 255 - sum(data[2:-1]) % 256
             if not checksum == data[-1]: raise ChecksumError(servo_id, data, checksum)
@@ -140,7 +140,7 @@ class DynamixelIO(object):
                 data.extend(self.ser.read(length))
                 data = array('B', ''.join(data)).tolist() # I assumed this is to convert the packet to a list/array of something?
 
-            except Exception, e:
+            except Exception as e:
                 raise DroppedPacketError('Invalid response received from motor %d. %s' % (servo_id, e))
 
             # Okay looking good so far, let's check the checksum
@@ -363,7 +363,7 @@ class DynamixelIO(object):
             try:
                 response = self.__read_response(servo_id, protocol)
                 response.append(timestamp)
-            except Exception, e:
+            except Exception as e:
                 response = []
 
         if response:
