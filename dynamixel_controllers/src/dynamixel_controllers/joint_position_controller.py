@@ -168,7 +168,7 @@ class JointPositionController(JointController):
         if self.running:
             state = filter(lambda state: state.id == self.motor_id, state_list.motor_states)
             if state:
-                state = state[0]
+                state = next(state)
                 self.joint_state.motor_temps = [state.temperature]
                 self.joint_state.goal_pos = self.raw_to_rad(state.goal, self.initial_position_raw, self.flipped, self.RADIANS_PER_ENCODER_TICK)
                 self.joint_state.current_pos = self.raw_to_rad(state.position, self.initial_position_raw, self.flipped, self.RADIANS_PER_ENCODER_TICK)

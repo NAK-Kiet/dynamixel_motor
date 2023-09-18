@@ -53,7 +53,7 @@ import roslib
 roslib.load_manifest('dynamixel_driver')
 
 import rospy
-import dynamixel_io
+import dynamixel_driver.dynamixel_io as dynamixel_io
 from dynamixel_driver.dynamixel_const import *
 
 from diagnostic_msgs.msg import DiagnosticArray
@@ -98,7 +98,7 @@ class SerialProxy():
         try:
             self.dxl_io = dynamixel_io.DynamixelIO(self.port_name, self.baud_rate, self.readback_echo)
             self.__find_motors()
-        except dynamixel_io.SerialOpenError, e:
+        except dynamixel_io.SerialOpenError as e:
             rospy.logfatal(e.message)
             sys.exit(1)
             

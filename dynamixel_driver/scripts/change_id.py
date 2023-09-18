@@ -70,7 +70,7 @@ if __name__ == '__main__':
     
     try:
         dxl_io = dynamixel_io.DynamixelIO(port, baudrate)
-    except dynamixel_io.SerialOpenError, soe:
+    except dynamixel_io.SerialOpenError as soe:
         print 'ERROR:', soe
     else:
         print 'Changing motor id from %d to %d...' %(old_id, new_id),

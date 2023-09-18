@@ -103,7 +103,7 @@ if __name__ == '__main__':
     
     try:
         dxl_io = dynamixel_io.DynamixelIO(port, baudrate)
-    except dynamixel_io.SerialOpenError, soe:
+    except dynamixel_io.SerialOpenError as soe:
         print 'ERROR:', soe
     else:
         responses = 0
